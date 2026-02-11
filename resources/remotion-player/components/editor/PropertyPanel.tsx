@@ -115,7 +115,7 @@ const ElementProperties: React.FC<{
     default:
       return (
         <div style={{ color: colors.textSecondary, fontSize: 12 }}>
-          Unknown element type: {element.type}
+          Unknown element type: {(element as ElementData).type}
         </div>
       );
   }

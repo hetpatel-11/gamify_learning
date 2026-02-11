@@ -126,7 +126,7 @@ export const TextInput: React.FC<{
   placeholder?: string;
 }> = ({ value, onChange, colors, placeholder }) => {
   const [local, setLocal] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     setLocal(value);
@@ -156,7 +156,7 @@ export const TextArea: React.FC<{
   rows?: number;
 }> = ({ value, onChange, colors, rows = 3 }) => {
   const [local, setLocal] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     setLocal(value);

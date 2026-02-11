@@ -11,7 +11,7 @@ function elementLabel(el: ElementData): string {
     case "image":
       return "Image";
     default:
-      return el.type;
+      return (el as ElementData).type;
   }
 }
 
