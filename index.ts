@@ -43,9 +43,9 @@ const compositionSchema = z.object({
     .default(30)
     .describe("Frames per second (default: 30)"),
   scenes: z
-    .string()
+    .union([z.string(), z.array(z.any())])
     .describe(
-      'JSON array of scene objects. Each scene: { id: string, durationInFrames: number, background: { type: "solid"|"gradient", color?: string, colors?: string[], direction?: number }, elements: [{ id, type: "text"|"shape"|"image", x, y, ... }], transition?: { type: "fade"|"slide"|"wipe"|"flip"|"clockWipe", durationInFrames, direction? } }'
+      'Array of scene objects (or JSON string). Each scene: { id: string, durationInFrames: number, background: { type: "solid"|"gradient", color?: string, colors?: string[], direction?: number }, elements: [{ id, type: "text"|"shape"|"image", x, y, ... }], transition?: { type: "fade"|"slide"|"wipe"|"flip"|"clockWipe", durationInFrames, direction? } }'
     ),
 });
 
@@ -65,12 +65,17 @@ server.tool(
   async (params: z.infer<typeof compositionSchema>) => {
     const { title, width, height, fps, scenes } = params;
     let parsedScenes;
-    try {
-      parsedScenes = JSON.parse(scenes);
-    } catch {
-      return text(
-        "Error: Invalid JSON in scenes parameter. Please provide a valid JSON array of scene objects."
-      );
+    if (Array.isArray(scenes)) {
+      // Already an array (ChatGPT sends objects directly)
+      parsedScenes = scenes;
+    } else {
+      try {
+        parsedScenes = JSON.parse(scenes);
+      } catch {
+        return text(
+          "Error: Invalid JSON in scenes parameter. Please provide a valid JSON array of scene objects."
+        );
+      }
     }
 
     if (!Array.isArray(parsedScenes) || parsedScenes.length === 0) {
