@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { z } from "zod";
 import type { WidgetMetadata } from "mcp-use/react";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
@@ -85,16 +85,19 @@ export default function RemotionPlayerWidget() {
   const [toolInput, setToolInput] = useState<Record<string, unknown> | null>(null);
   const [isFinal, setIsFinal] = useState(false);
   const [resultComp, setResultComp] = useState<CompositionData | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(
     typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)")?.matches
       ? "dark" : "light"
   );
   const ref = useRef<PlayerRef>(null);
+  const appRef = useRef<any>(null);
 
   useApp({
     appInfo: { name: "Remotion", version: "1.0.0" },
     capabilities: {},
     onAppCreated: (app) => {
+      appRef.current = app;
       app.ontoolinputpartial = (params: any) => {
         setIsFinal(false);
         setToolInput(params?.arguments ?? params ?? {});
@@ -123,6 +126,17 @@ export default function RemotionPlayerWidget() {
   const isStreaming = !isFinal && !!streamingComp;
   const dur = useMemo(() => comp?.scenes ? totalDuration(comp.scenes) : 1, [comp?.scenes]);
 
+  const download = useCallback(() => {
+    if (!comp) return;
+    const blob = new Blob([JSON.stringify(comp, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${comp.meta.title || "composition"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [comp]);
+
   const dark = theme === "dark";
   const bg = dark ? "#141414" : "#fff";
   const bg2 = dark ? "#1c1c1c" : "#f5f5f5";
@@ -141,17 +155,61 @@ export default function RemotionPlayerWidget() {
   const { meta, scenes } = comp;
   const sceneCount = scenes.length;
 
+  if (isFullscreen) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#000", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: bg2, borderBottom: `1px solid ${bd}`, flexShrink: 0 }}>
+          <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: fg2 }}>
+            <span>{meta.width}x{meta.height} · {meta.fps}fps · {sceneCount} scene{sceneCount !== 1 ? "s" : ""} · {(dur / meta.fps).toFixed(1)}s</span>
+            <button onClick={download} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, border: `1px solid ${bd}`, borderRadius: 4, cursor: "pointer", background: "transparent", color: fg, fontFamily: "inherit" }}>
+              Download
+            </button>
+            <button onClick={() => { setIsFullscreen(false); try { appRef.current?.requestDisplayMode?.({ mode: "inline" }); } catch {} }} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, border: `1px solid ${bd}`, borderRadius: 4, cursor: "pointer", background: "transparent", color: fg, fontFamily: "inherit" }}>
+              Close
+            </button>
+          </div>
+        </div>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Player
+            ref={ref}
+            component={DynamicComposition}
+            inputProps={{ scenes }}
+            durationInFrames={dur}
+            fps={meta.fps}
+            compositionWidth={meta.width}
+            compositionHeight={meta.height}
+            controls
+            autoPlay
+            loop
+            style={{ width: "100%", maxHeight: "100%" }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
       <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: bg2, borderBottom: `1px solid ${bd}` }}>
         <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>
           {meta.title}{isStreaming ? ` (${sceneCount} scene${sceneCount !== 1 ? "s" : ""}...)` : ""}
         </span>
-        {!isStreaming && (
-          <span style={{ color: fg2, fontSize: 11 }}>
-            {meta.width}x{meta.height} · {meta.fps}fps · {sceneCount} scene{sceneCount !== 1 ? "s" : ""} · {(dur / meta.fps).toFixed(1)}s
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: fg2 }}>
+          {!isStreaming && (
+            <span>{meta.width}x{meta.height} · {meta.fps}fps · {sceneCount} scene{sceneCount !== 1 ? "s" : ""} · {(dur / meta.fps).toFixed(1)}s</span>
+          )}
+          {!isStreaming && (
+            <button onClick={download} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, border: `1px solid ${bd}`, borderRadius: 4, cursor: "pointer", background: "transparent", color: fg, fontFamily: "inherit" }}>
+              Download
+            </button>
+          )}
+          {!isStreaming && (
+            <button onClick={() => { setIsFullscreen(true); try { appRef.current?.requestDisplayMode?.({ mode: "fullscreen" }); } catch {} }} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, border: `1px solid ${bd}`, borderRadius: 4, cursor: "pointer", background: "transparent", color: fg, fontFamily: "inherit" }}>
+              Edit
+            </button>
+          )}
+        </div>
       </div>
       <Player
         key={isStreaming ? `s-${sceneCount}` : "final"}
