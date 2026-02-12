@@ -6,7 +6,7 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { DynamicComposition } from "./components/DynamicComposition";
 import type { CompositionData, SceneData } from "../../types";
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 const propSchema = z.object({
   composition: z.string().describe("JSON string of the composition"),
@@ -93,6 +93,7 @@ export default function RemotionPlayerWidget() {
       ? "dark" : "light"
   );
   const ref = useRef<PlayerRef>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<any>(null);
 
   useApp({
@@ -138,6 +139,16 @@ export default function RemotionPlayerWidget() {
     a.click();
     URL.revokeObjectURL(url);
   }, [comp]);
+
+  // Tell the host how tall we want to be
+  useEffect(() => {
+    if (!comp || isFullscreen) return;
+    const HEADER = 37;
+    const aspect = comp.meta.height / comp.meta.width;
+    const width = containerRef.current?.offsetWidth || 600;
+    const height = Math.round(width * aspect) + HEADER;
+    try { appRef.current?.notifyIntrinsicHeight?.(height); } catch {}
+  }, [comp, isFullscreen]);
 
   const dark = theme === "dark";
   const bg = dark ? "#141414" : "#fff";
@@ -195,7 +206,7 @@ export default function RemotionPlayerWidget() {
   }
 
   return (
-    <div style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
+    <div ref={containerRef} style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
       <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: bg2, borderBottom: `1px solid ${bd}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>
