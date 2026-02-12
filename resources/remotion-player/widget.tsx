@@ -6,30 +6,25 @@ import { DynamicComposition } from "./components/DynamicComposition";
 import type { CompositionData, SceneData } from "../../types";
 
 const propSchema = z.object({
-  composition: z
-    .string()
-    .describe("JSON string containing the full composition data"),
+  composition: z.string().describe("JSON string of the composition"),
 });
 
 // @ts-expect-error - Zod v4 deep type instantiation
 export const widgetMetadata: WidgetMetadata = {
-  description: "Interactive Remotion video player",
+  description: "Remotion video player",
   props: propSchema,
   exposeAsTool: false,
   metadata: {
     prefersBorder: true,
     autoResize: true,
-    widgetDescription: "Renders a live Remotion video composition",
+    widgetDescription: "Renders a Remotion video composition",
     csp: {
-      resourceDomains: [
-        "https://images.unsplash.com",
-        "https://picsum.photos",
-      ],
+      resourceDomains: ["https://images.unsplash.com", "https://picsum.photos"],
     },
   },
 };
 
-function calcDuration(scenes: SceneData[]): number {
+function totalDuration(scenes: SceneData[]): number {
   let t = 0;
   for (let i = 0; i < scenes.length; i++) {
     t += scenes[i].durationInFrames;
@@ -39,109 +34,86 @@ function calcDuration(scenes: SceneData[]): number {
   return Math.max(t, 1);
 }
 
-function parseComposition(
-  widgetProps: Partial<{ composition: string }>,
-  toolInput: Record<string, unknown> | undefined
-): CompositionData | null {
-  // From widget props
-  if (widgetProps?.composition) {
-    try { return JSON.parse(widgetProps.composition); } catch { /* noop */ }
-  }
-  // From toolInput
-  if (toolInput?.scenes) {
-    let scenes: SceneData[] = [];
-    const raw = toolInput.scenes;
-    if (typeof raw === "string") {
-      try { scenes = JSON.parse(raw); } catch { /* noop */ }
-    } else if (Array.isArray(raw)) {
-      scenes = raw;
-    }
-    if (scenes.length > 0) {
-      return {
-        meta: {
-          title: (toolInput.title as string) || "Untitled",
-          width: (toolInput.width as number) || 1920,
-          height: (toolInput.height as number) || 1080,
-          fps: (toolInput.fps as number) || 30,
-        },
-        scenes,
-      };
-    }
-  }
-  return null;
-}
-
-const RemotionPlayerWidget: React.FC = () => {
+const Widget: React.FC = () => {
   const { props, isPending, theme, toolInput } = useWidget();
-  const playerRef = useRef<PlayerRef>(null);
+  const ref = useRef<PlayerRef>(null);
 
-  const composition = useMemo(
-    () => parseComposition(
-      props as Partial<{ composition: string }>,
-      toolInput as Record<string, unknown> | undefined
-    ),
-    [props, toolInput]
-  );
+  const comp = useMemo<CompositionData | null>(() => {
+    const p = props as Partial<{ composition: string }>;
+    const ti = toolInput as Record<string, unknown> | undefined;
 
-  const duration = useMemo(
-    () => composition?.scenes ? calcDuration(composition.scenes) : 1,
-    [composition?.scenes]
-  );
+    if (p?.composition) {
+      try { return JSON.parse(p.composition); } catch {}
+    }
+    if (ti?.scenes) {
+      let scenes: SceneData[] = [];
+      if (typeof ti.scenes === "string") {
+        try { scenes = JSON.parse(ti.scenes); } catch {}
+      } else if (Array.isArray(ti.scenes)) {
+        scenes = ti.scenes;
+      }
+      if (scenes.length)
+        return {
+          meta: {
+            title: (ti.title as string) || "Untitled",
+            width: (ti.width as number) || 1920,
+            height: (ti.height as number) || 1080,
+            fps: (ti.fps as number) || 30,
+          },
+          scenes,
+        };
+    }
+    return null;
+  }, [props, toolInput]);
 
-  const isDark = theme === "dark";
-  const bg = isDark ? "#141414" : "#fff";
-  const bg2 = isDark ? "#1c1c1c" : "#f5f5f5";
-  const fg = isDark ? "#e0e0e0" : "#1a1a1a";
-  const fg2 = isDark ? "#777" : "#888";
-  const border = isDark ? "#2a2a2a" : "#e0e0e0";
+  const dur = useMemo(() => comp?.scenes ? totalDuration(comp.scenes) : 1, [comp?.scenes]);
 
-  if (isPending || !composition) {
+  const dark = theme === "dark";
+  const bg = dark ? "#141414" : "#fff";
+  const bg2 = dark ? "#1c1c1c" : "#f5f5f5";
+  const fg = dark ? "#e0e0e0" : "#1a1a1a";
+  const fg2 = dark ? "#777" : "#888";
+  const bd = dark ? "#2a2a2a" : "#e0e0e0";
+
+  if (isPending || !comp) {
     return (
-      <McpUseProvider autoSize>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
-          minHeight: 200, background: bg, borderRadius: 8,
-          fontFamily: "system-ui, sans-serif", color: fg2, fontSize: 13,
-        }}>
-          {isPending ? "Creating..." : "No data"}
-        </div>
-      </McpUseProvider>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 200, background: bg, borderRadius: 8, fontFamily: "system-ui, sans-serif", color: fg2, fontSize: 13 }}>
+        {isPending ? "Creating..." : "No data"}
+      </div>
     );
   }
 
-  const { meta, scenes } = composition;
+  const { meta, scenes } = comp;
 
   return (
-    <McpUseProvider autoSize>
-      <div style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
-        <div style={{
-          padding: "8px 14px", display: "flex", alignItems: "center",
-          justifyContent: "space-between", background: bg2,
-          borderBottom: `1px solid ${border}`,
-        }}>
-          <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
-          <span style={{ color: fg2, fontSize: 11 }}>
-            {meta.width}x{meta.height} &middot; {meta.fps}fps &middot; {scenes.length} scene{scenes.length !== 1 ? "s" : ""} &middot; {(duration / meta.fps).toFixed(1)}s
-          </span>
-        </div>
-        <div style={{ background: "#000" }}>
-          <Player
-            ref={playerRef}
-            component={DynamicComposition}
-            inputProps={{ scenes }}
-            durationInFrames={duration}
-            fps={meta.fps}
-            compositionWidth={meta.width}
-            compositionHeight={meta.height}
-            controls
-            autoPlay
-            loop
-            style={{ width: "100%" }}
-          />
-        </div>
+    <div style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: bg2, borderBottom: `1px solid ${bd}` }}>
+        <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
+        <span style={{ color: fg2, fontSize: 11 }}>
+          {meta.width}x{meta.height} · {meta.fps}fps · {scenes.length} scene{scenes.length !== 1 ? "s" : ""} · {(dur / meta.fps).toFixed(1)}s
+        </span>
       </div>
-    </McpUseProvider>
+      <Player
+        ref={ref}
+        component={DynamicComposition}
+        inputProps={{ scenes }}
+        durationInFrames={dur}
+        fps={meta.fps}
+        compositionWidth={meta.width}
+        compositionHeight={meta.height}
+        controls
+        autoPlay
+        loop
+        style={{ width: "100%" }}
+      />
+    </div>
   );
 };
 
-export default RemotionPlayerWidget;
+export default function RemotionPlayerWidget() {
+  return (
+    <McpUseProvider autoSize>
+      <Widget />
+    </McpUseProvider>
+  );
+}
