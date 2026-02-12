@@ -113,6 +113,37 @@ function extractPartialScenes(raw: string): SceneData[] {
   return scenes;
 }
 
+// --- LocalStorage persistence for surviving fullscreen remounts ---
+const STORAGE_KEY = "remotion-mcp-composition";
+const STORAGE_EDIT_KEY = "remotion-mcp-edit-mode";
+
+function persistComposition(comp: CompositionData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(comp));
+  } catch { /* noop */ }
+}
+
+function loadPersistedComposition(): CompositionData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* noop */ }
+  return null;
+}
+
+function persistEditMode(editing: boolean) {
+  try {
+    localStorage.setItem(STORAGE_EDIT_KEY, editing ? "1" : "0");
+  } catch { /* noop */ }
+}
+
+function loadPersistedEditMode(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_EDIT_KEY) === "1";
+  } catch { /* noop */ }
+  return false;
+}
+
 // --- Main widget using raw MCP Apps SDK for streaming ---
 
 const RemotionPlayerWidget: React.FC = () => {
@@ -121,9 +152,13 @@ const RemotionPlayerWidget: React.FC = () => {
   const [inputIsFinal, setInputIsFinal] = useState(false);
   // Tool result props (from ontoolresult)
   const [resultProps, setResultProps] = useState<Record<string, unknown> | null>(null);
+  // Persisted composition from localStorage (survives fullscreen remount)
+  const [persistedComp, setPersistedComp] = useState<CompositionData | null>(
+    () => loadPersistedComposition()
+  );
 
   const playerRef = useRef<PlayerRef>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(() => loadPersistedEditMode());
   const [theme, setTheme] = useState<"light" | "dark">("light");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const appRef = useRef<any>(null);
@@ -189,7 +224,7 @@ const RemotionPlayerWidget: React.FC = () => {
     };
   }, [inputIsFinal, toolInput]);
 
-  // --- Final composition: from result props or final toolInput ---
+  // --- Final composition: from result props, final toolInput, or persisted ---
   const finalComposition = useMemo<CompositionData | null>(() => {
     // From result props (widget props from server)
     const compStr = (resultProps as any)?.composition;
@@ -219,14 +254,27 @@ const RemotionPlayerWidget: React.FC = () => {
       }
     }
 
-    return null;
-  }, [resultProps, inputIsFinal, toolInput]);
+    // Fallback: persisted from localStorage (survives fullscreen remount)
+    if (persistedComp) return persistedComp;
 
-  // When final arrives, reset edit state
+    return null;
+  }, [resultProps, inputIsFinal, toolInput, persistedComp]);
+
+  // Persist composition whenever final changes
   useEffect(() => {
     if (finalComposition) {
-      setIsEditMode(false);
+      persistComposition(finalComposition);
     }
+  }, [finalComposition]);
+
+  // When a NEW final arrives from a new tool call, exit edit mode
+  const prevFinalRef = useRef(finalComposition);
+  useEffect(() => {
+    if (finalComposition && finalComposition !== prevFinalRef.current && prevFinalRef.current !== null) {
+      setIsEditMode(false);
+      persistEditMode(false);
+    }
+    prevFinalRef.current = finalComposition;
   }, [finalComposition]);
 
   const isStreaming = !inputIsFinal && !finalComposition;
@@ -247,14 +295,18 @@ const RemotionPlayerWidget: React.FC = () => {
   const editorColors = getEditorTheme(isDark);
 
   const enterEditMode = useCallback(async () => {
+    // Persist state BEFORE requesting fullscreen (which may remount the widget)
+    if (finalComposition) persistComposition(finalComposition);
+    persistEditMode(true);
+    setIsEditMode(true);
     try {
       await appRef.current?.requestDisplayMode?.({ mode: "fullscreen" });
     } catch { /* noop */ }
-    setIsEditMode(true);
-  }, []);
+  }, [finalComposition]);
 
   const exitEditMode = useCallback(async () => {
     setIsEditMode(false);
+    persistEditMode(false);
     try {
       await appRef.current?.requestDisplayMode?.({ mode: "inline" });
     } catch { /* noop */ }
