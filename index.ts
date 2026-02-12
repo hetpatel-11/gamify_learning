@@ -1,6 +1,14 @@
 import { MCPServer, text, widget } from "mcp-use/server";
 import { z } from "zod";
-import { REMOTION_CHEATSHEET } from "./cheatsheet.js";
+import { RULE_INDEX } from "./rules/index.js";
+import { RULE_SCENE_FORMAT } from "./rules/scene-format.js";
+import { RULE_TEXT_ELEMENTS } from "./rules/text-elements.js";
+import { RULE_SHAPE_ELEMENTS } from "./rules/shape-elements.js";
+import { RULE_IMAGE_ELEMENTS } from "./rules/image-elements.js";
+import { RULE_ANIMATIONS } from "./rules/animations.js";
+import { RULE_TRANSITIONS } from "./rules/transitions.js";
+import { RULE_TIMING } from "./rules/timing.js";
+import { RULE_EXAMPLES } from "./rules/examples.js";
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
@@ -14,16 +22,58 @@ const server = new MCPServer({
   baseUrl: process.env.MCP_URL ?? `http://localhost:${port}`,
 });
 
+// --- Rule tools (skill-style routing) ---
+
 server.tool(
   {
     name: "read_me",
     description:
-      "IMPORTANT: Call this FIRST before creating any composition. Returns the complete guide for the Remotion scene description format including element types, animation options, color palettes, timing guide, and full examples.",
+      "IMPORTANT: Call this FIRST before creating any composition. Returns the format guide overview and lists available rule tools for specific topics (animations, transitions, text, shapes, images, timing, examples).",
   },
-  async () => {
-    return text(REMOTION_CHEATSHEET);
-  }
+  async () => text(RULE_INDEX)
 );
+
+server.tool(
+  { name: "rule_scene_format", description: "Scene structure, backgrounds (solid/gradient), element positioning" },
+  async () => text(RULE_SCENE_FORMAT)
+);
+
+server.tool(
+  { name: "rule_text_elements", description: "Text element properties: fontSize, fontWeight, color, fontFamily, textAlign, lineHeight, backgroundColor" },
+  async () => text(RULE_TEXT_ELEMENTS)
+);
+
+server.tool(
+  { name: "rule_shape_elements", description: "Shape types (rectangle, circle, ellipse, line), fill, stroke, borderRadius, shadow" },
+  async () => text(RULE_SHAPE_ELEMENTS)
+);
+
+server.tool(
+  { name: "rule_image_elements", description: "Image src, objectFit, borderRadius, allowed domains" },
+  async () => text(RULE_IMAGE_ELEMENTS)
+);
+
+server.tool(
+  { name: "rule_animations", description: "Enter/exit animations: fade, slide, scale, spring, bounce, rotate, blur, typewriter + spring config presets" },
+  async () => text(RULE_ANIMATIONS)
+);
+
+server.tool(
+  { name: "rule_transitions", description: "Scene-to-scene transitions: fade, slide, wipe, flip, clockWipe + duration calculation" },
+  async () => text(RULE_TRANSITIONS)
+);
+
+server.tool(
+  { name: "rule_timing", description: "FPS guide, duration in frames, scene/animation timing, staggered entrances" },
+  async () => text(RULE_TIMING)
+);
+
+server.tool(
+  { name: "rule_examples", description: "Full working examples, color palettes, common patterns (title card, slide deck, kinetic typography)" },
+  async () => text(RULE_EXAMPLES)
+);
+
+// --- Composition tool ---
 
 const compositionSchema = z.object({
   title: z.string().describe("Title of the composition"),
@@ -45,7 +95,7 @@ const compositionSchema = z.object({
   scenes: z
     .union([z.string(), z.array(z.any())])
     .describe(
-      'Array of scene objects (or JSON string). Each scene: { id: string, durationInFrames: number, background: { type: "solid"|"gradient", color?: string, colors?: string[], direction?: number }, elements: [{ id, type: "text"|"shape"|"image", x, y, ... }], transition?: { type: "fade"|"slide"|"wipe"|"flip"|"clockWipe", durationInFrames, direction? } }'
+      'Array of scene objects (or JSON string). Each scene: { id, durationInFrames, background, elements, transition? }. Call read_me and rule tools first to learn the format.'
     ),
 });
 
@@ -54,7 +104,7 @@ server.tool(
   {
     name: "create_composition",
     description:
-      "Create or update a Remotion video composition. Renders as a live interactive video player with play/pause/scrub controls. Call read_me first to learn the format.",
+      "Create or update a Remotion video composition. Renders as a live interactive video player. Call read_me first, then call specific rule tools as needed to learn the format.",
     schema: compositionSchema,
     widget: {
       name: "remotion-player",
@@ -66,7 +116,6 @@ server.tool(
     const { title, width, height, fps, scenes } = params;
     let parsedScenes;
     if (Array.isArray(scenes)) {
-      // Already an array (ChatGPT sends objects directly)
       parsedScenes = scenes;
     } else {
       try {
@@ -110,7 +159,7 @@ server.tool(
       output: text(
         `Created composition "${title}" (${width}x${height}, ${fps}fps, ${parsedScenes.length} scene(s), ~${totalSeconds}s).\n` +
           `The video is now playing in the widget with full playback controls.\n` +
-          `To iterate: call create_composition again with modified scenes. You can change colors, text, animations, add/remove elements, or add new scenes.`
+          `To iterate: call create_composition again with modified scenes.`
       ),
     });
   }
