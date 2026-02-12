@@ -93,9 +93,9 @@ const compositionSchema = z.object({
     .default(30)
     .describe("Frames per second (default: 30)"),
   scenes: z
-    .union([z.string(), z.array(z.any())])
+    .any()
     .describe(
-      'Array of scene objects (or JSON string). Each scene: { id, durationInFrames, background, elements, transition? }. Call read_me and rule tools first to learn the format.'
+      'Scenes as a JSON array. Each scene: { id, durationInFrames, background, elements, transition? }. Can be a JSON string or array. Use \\n for newlines in text, not literal newlines. Call read_me first.'
     ),
 });
 
@@ -114,28 +114,35 @@ server.tool(
   },
   async (params: z.infer<typeof compositionSchema>) => {
     const { title, width, height, fps, scenes } = params;
+
+    // Normalize scenes: accept string, array, or object
     let parsedScenes;
     if (Array.isArray(scenes)) {
       parsedScenes = scenes;
-    } else {
+    } else if (typeof scenes === "string") {
       try {
         parsedScenes = JSON.parse(scenes);
-      } catch {
+      } catch (e) {
         return text(
-          "Error: Invalid JSON in scenes parameter. Please provide a valid JSON array of scene objects."
+          `Error parsing scenes JSON: ${(e as Error).message}\n\nMake sure scenes is a valid JSON array. Use \\n for newlines in text content, not literal line breaks.`
         );
       }
+    } else if (typeof scenes === "object" && scenes !== null) {
+      // Single scene object or unexpected shape — wrap in array
+      parsedScenes = [scenes];
+    } else {
+      return text("Error: scenes must be a JSON array of scene objects.");
     }
 
     if (!Array.isArray(parsedScenes) || parsedScenes.length === 0) {
-      return text("Error: scenes must be a non-empty JSON array.");
+      return text("Error: scenes must be a non-empty array.");
     }
 
     for (let i = 0; i < parsedScenes.length; i++) {
       const scene = parsedScenes[i];
       if (!scene.id || !scene.durationInFrames || !scene.background) {
         return text(
-          `Error: Scene at index ${i} is missing required fields (id, durationInFrames, background).`
+          `Error: Scene ${i} missing required fields. Every scene needs: id (string), durationInFrames (number), background ({ type: "solid"|"gradient", color/colors }). Got: ${JSON.stringify(Object.keys(scene))}`
         );
       }
     }

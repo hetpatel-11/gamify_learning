@@ -34,4 +34,6 @@ Call these tools to learn specific topics before creating a composition:
 7. DO NOT use CSS transitions or animations - only frame-based animations
 8. Transition durations overlap scenes (subtracted from total)
 9. Keep scenes focused - 2-5 elements per scene works best
+10. Use \\n for newlines in text content, never literal line breaks inside JSON strings
+11. Transition directions must be "from-left", "from-right", "from-top", "from-bottom"
 `;
