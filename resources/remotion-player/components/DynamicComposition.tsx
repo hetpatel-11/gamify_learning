@@ -9,21 +9,37 @@ import { flip } from "@remotion/transitions/flip";
 import { SceneRenderer } from "./SceneRenderer";
 import type { SceneData, TransitionData } from "../../../types";
 
+// Normalize direction: the LLM might send "left" instead of "from-left"
+function normalizeDirection(dir: string | undefined): "from-left" | "from-right" | "from-top" | "from-bottom" {
+  if (!dir) return "from-right";
+  const d = dir.toLowerCase().trim();
+  if (d === "left" || d === "from-left") return "from-left";
+  if (d === "right" || d === "from-right") return "from-right";
+  if (d === "top" || d === "up" || d === "from-top") return "from-top";
+  if (d === "bottom" || d === "down" || d === "from-bottom") return "from-bottom";
+  return "from-right";
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getPresentation(transition: TransitionData): any {
-  switch (transition.type) {
-    case "fade":
-      return fade();
-    case "slide":
-      return slide({ direction: transition.direction || "from-right" });
-    case "wipe":
-      return wipe({ direction: transition.direction || "from-left" });
-    case "flip":
-      return flip({ direction: transition.direction || "from-right" });
-    case "clockWipe":
-      return fade();
-    default:
-      return fade();
+  try {
+    const dir = normalizeDirection(transition.direction);
+    switch (transition.type) {
+      case "fade":
+        return fade();
+      case "slide":
+        return slide({ direction: dir });
+      case "wipe":
+        return wipe({ direction: dir });
+      case "flip":
+        return flip({ direction: dir });
+      case "clockWipe":
+        return fade();
+      default:
+        return fade();
+    }
+  } catch {
+    return fade();
   }
 }
 
