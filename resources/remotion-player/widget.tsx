@@ -1,7 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { z } from "zod";
-import type { WidgetMetadata } from "mcp-use/react";
-import { useApp } from "@modelcontextprotocol/ext-apps/react";
+import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { DynamicComposition } from "./components/DynamicComposition";
 import { EditorLayout } from "./components/editor/EditorLayout";
@@ -9,7 +8,6 @@ import { getEditorTheme } from "./components/editor/EditorControls";
 import { useCompositionEditor } from "./components/editor/useCompositionEditor";
 import type { CompositionData, SceneData } from "../../types";
 
-// --- Widget metadata for mcp-use auto-registration ---
 const propSchema = z.object({
   composition: z
     .string()
@@ -48,24 +46,14 @@ function calculateTotalDuration(scenes: SceneData[]): number {
   return Math.max(total, 1);
 }
 
-/**
- * Try to parse scenes from a value that may be:
- * - A complete JSON array (object)
- * - A complete JSON string
- * - An incomplete/streaming JSON string (partial)
- * Returns whatever valid scenes we can extract, or empty array.
- */
 function tryParseScenes(raw: unknown): SceneData[] {
   if (!raw) return [];
-
   if (Array.isArray(raw)) {
     return raw.filter(
       (s) => s && typeof s === "object" && s.id && s.durationInFrames && s.background
     );
   }
-
   if (typeof raw !== "string" || raw.trim().length === 0) return [];
-
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
@@ -79,15 +67,10 @@ function tryParseScenes(raw: unknown): SceneData[] {
   }
 }
 
-/**
- * Extract complete scene objects from a partially streamed JSON array string.
- * e.g. '[{"id":"s1",...},{"id":"s2",...},{"id":"s3' -> first 2 scenes
- */
 function extractPartialScenes(raw: string): SceneData[] {
   const scenes: SceneData[] = [];
   let depth = 0;
   let objectStart = -1;
-
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i];
     if (ch === "{") {
@@ -96,20 +79,14 @@ function extractPartialScenes(raw: string): SceneData[] {
     } else if (ch === "}") {
       depth--;
       if (depth === 0 && objectStart >= 0) {
-        const chunk = raw.slice(objectStart, i + 1);
         try {
-          const obj = JSON.parse(chunk);
-          if (obj.id && obj.durationInFrames && obj.background) {
-            scenes.push(obj);
-          }
-        } catch {
-          // incomplete object, skip
-        }
+          const obj = JSON.parse(raw.slice(objectStart, i + 1));
+          if (obj.id && obj.durationInFrames && obj.background) scenes.push(obj);
+        } catch { /* incomplete */ }
         objectStart = -1;
       }
     }
   }
-
   return scenes;
 }
 
@@ -118,11 +95,8 @@ const STORAGE_KEY = "remotion-mcp-composition";
 const STORAGE_EDIT_KEY = "remotion-mcp-edit-mode";
 
 function persistComposition(comp: CompositionData) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(comp));
-  } catch { /* noop */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(comp)); } catch { /* noop */ }
 }
-
 function loadPersistedComposition(): CompositionData | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -130,111 +104,96 @@ function loadPersistedComposition(): CompositionData | null {
   } catch { /* noop */ }
   return null;
 }
-
 function persistEditMode(editing: boolean) {
-  try {
-    localStorage.setItem(STORAGE_EDIT_KEY, editing ? "1" : "0");
-  } catch { /* noop */ }
+  try { localStorage.setItem(STORAGE_EDIT_KEY, editing ? "1" : "0"); } catch { /* noop */ }
 }
-
 function loadPersistedEditMode(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_EDIT_KEY) === "1";
-  } catch { /* noop */ }
+  try { return localStorage.getItem(STORAGE_EDIT_KEY) === "1"; } catch { /* noop */ }
   return false;
 }
 
-// --- Main widget using raw MCP Apps SDK for streaming ---
+// --- Hook: intercept tool-input-partial from postMessage ---
+// mcp-use's bridge drops these, so we listen for them directly.
+function useStreamingToolInput() {
+  const [partialInput, setPartialInput] = useState<Record<string, unknown> | null>(null);
 
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+
+      // MCP Apps protocol format
+      if (data.jsonrpc === "2.0") {
+        const method = data.method || "";
+        if (
+          method === "notifications/tool-input-partial" ||
+          method === "ui/notifications/tool-input-partial"
+        ) {
+          const args = data.params?.arguments ?? data.params ?? {};
+          console.log("[remotion] streaming partial:", Object.keys(args));
+          setPartialInput(args);
+        }
+        // When full input arrives, clear partial (useWidget handles the rest)
+        if (
+          method === "notifications/tool-input" ||
+          method === "ui/notifications/tool-input"
+        ) {
+          console.log("[remotion] tool input complete");
+          setPartialInput(null);
+        }
+      }
+
+      // OpenAI Apps SDK format (set_globals with toolInput)
+      if (data.type === "openai:set_globals" && data.detail?.globals?.toolInput) {
+        // This fires progressively in the Apps SDK
+        console.log("[remotion] globals update with toolInput");
+      }
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  return partialInput;
+}
+
+// --- Main widget ---
 const RemotionPlayerWidget: React.FC = () => {
-  // Raw tool input — updates progressively during streaming via ontoolinputpartial
-  const [toolInput, setToolInput] = useState<Record<string, unknown> | null>(null);
-  const [inputIsFinal, setInputIsFinal] = useState(false);
-  // Tool result props (from ontoolresult)
-  const [resultProps, setResultProps] = useState<Record<string, unknown> | null>(null);
-  // Persisted composition from localStorage (survives fullscreen remount)
-  const [persistedComp, setPersistedComp] = useState<CompositionData | null>(
-    () => loadPersistedComposition()
-  );
+  const { props, isPending, theme, sendFollowUpMessage, requestDisplayMode, toolInput } =
+    useWidget();
+  const partialInput = useStreamingToolInput();
 
   const playerRef = useRef<PlayerRef>(null);
   const [isEditMode, setIsEditMode] = useState(() => loadPersistedEditMode());
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const appRef = useRef<any>(null);
+  const [persistedComp] = useState<CompositionData | null>(() => loadPersistedComposition());
 
-  // --- Wire up the raw MCP Apps SDK ---
-  useApp({
-    appInfo: { name: "Remotion Video Creator", version: "1.0.0" },
-    capabilities: {},
-    onAppCreated: (app) => {
-      appRef.current = app;
+  const widgetProps = props as Partial<{ composition: string }>;
+  const rawInput = toolInput as Record<string, unknown> | undefined;
 
-      // STREAMING: fires repeatedly as LLM generates tokens
-      app.ontoolinputpartial = (params: any) => {
-        setInputIsFinal(false);
-        setToolInput(params?.arguments ?? params ?? {});
-      };
-
-      // COMPLETE: fires once when tool arguments are finalized
-      app.ontoolinput = (params: any) => {
-        setInputIsFinal(true);
-        setToolInput(params?.arguments ?? params ?? {});
-      };
-
-      // RESULT: fires when tool execution completes on server
-      app.ontoolresult = (result: any) => {
-        const props =
-          result?.structuredContent?.["mcp-use/props"]
-          ?? result?.content?.[0]?.["mcp-use/props"]
-          ?? {};
-        setResultProps(props);
-      };
-
-      // Theme changes from host
-      app.onhostcontextchanged = (params: any) => {
-        if (params?.theme) setTheme(params.theme);
-      };
-    },
-  });
-
-  // Detect theme from system on mount
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const isDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-      if (isDark) setTheme("dark");
-    }
-  }, []);
-
-  // --- Streaming composition: parse partial scenes from toolInput ---
+  // --- Streaming composition from intercepted partial input ---
   const streamingComposition = useMemo<CompositionData | null>(() => {
-    if (inputIsFinal || !toolInput) return null;
-
-    const scenes = tryParseScenes(toolInput.scenes);
-    if (scenes.length === 0 && !toolInput.title) return null;
-
+    const input = partialInput || (isPending ? rawInput : null);
+    if (!input) return null;
+    const scenes = tryParseScenes(input.scenes);
+    if (scenes.length === 0 && !input.title) return null;
     return {
       meta: {
-        title: (toolInput.title as string) || "Untitled",
-        width: (toolInput.width as number) || 1920,
-        height: (toolInput.height as number) || 1080,
-        fps: (toolInput.fps as number) || 30,
+        title: (input.title as string) || "Untitled",
+        width: (input.width as number) || 1920,
+        height: (input.height as number) || 1080,
+        fps: (input.fps as number) || 30,
       },
       scenes,
     };
-  }, [inputIsFinal, toolInput]);
+  }, [partialInput, isPending, rawInput]);
 
-  // --- Final composition: from result props, final toolInput, or persisted ---
+  // --- Final composition from props or toolInput ---
   const finalComposition = useMemo<CompositionData | null>(() => {
-    // From result props (widget props from server)
-    const compStr = (resultProps as any)?.composition;
-    if (compStr && typeof compStr === "string") {
-      try { return JSON.parse(compStr); } catch { /* noop */ }
+    if (widgetProps?.composition) {
+      try { return JSON.parse(widgetProps.composition); } catch { /* noop */ }
     }
-
-    // From final tool input
-    if (inputIsFinal && toolInput?.scenes) {
-      const raw = toolInput.scenes;
+    if (!isPending && rawInput?.scenes) {
+      const raw = rawInput.scenes;
       let parsedScenes: SceneData[] = [];
       if (typeof raw === "string") {
         try { parsedScenes = JSON.parse(raw); } catch { /* noop */ }
@@ -244,30 +203,25 @@ const RemotionPlayerWidget: React.FC = () => {
       if (parsedScenes.length > 0) {
         return {
           meta: {
-            title: (toolInput.title as string) || "Untitled",
-            width: (toolInput.width as number) || 1920,
-            height: (toolInput.height as number) || 1080,
-            fps: (toolInput.fps as number) || 30,
+            title: (rawInput.title as string) || "Untitled",
+            width: (rawInput.width as number) || 1920,
+            height: (rawInput.height as number) || 1080,
+            fps: (rawInput.fps as number) || 30,
           },
           scenes: parsedScenes,
         };
       }
     }
-
-    // Fallback: persisted from localStorage (survives fullscreen remount)
     if (persistedComp) return persistedComp;
-
     return null;
-  }, [resultProps, inputIsFinal, toolInput, persistedComp]);
+  }, [widgetProps?.composition, isPending, rawInput, persistedComp]);
 
-  // Persist composition whenever final changes
+  // Persist when final changes
   useEffect(() => {
-    if (finalComposition) {
-      persistComposition(finalComposition);
-    }
+    if (finalComposition) persistComposition(finalComposition);
   }, [finalComposition]);
 
-  // When a NEW final arrives from a new tool call, exit edit mode
+  // Exit edit mode when new composition arrives
   const prevFinalRef = useRef(finalComposition);
   useEffect(() => {
     if (finalComposition && finalComposition !== prevFinalRef.current && prevFinalRef.current !== null) {
@@ -277,7 +231,7 @@ const RemotionPlayerWidget: React.FC = () => {
     prevFinalRef.current = finalComposition;
   }, [finalComposition]);
 
-  const isStreaming = !inputIsFinal && !finalComposition;
+  const isStreaming = isPending || !!partialInput;
   const composition = finalComposition || streamingComposition;
 
   const totalDuration = useMemo(() => {
@@ -291,203 +245,157 @@ const RemotionPlayerWidget: React.FC = () => {
   const textPrimary = isDark ? "#e0e0e0" : "#1a1a1a";
   const textSecondary = isDark ? "#777777" : "#888888";
   const borderColor = isDark ? "#2a2a2a" : "#e0e0e0";
-  const accent = isDark ? "#ffffff" : "#1a1a1a";
   const editorColors = getEditorTheme(isDark);
 
   const enterEditMode = useCallback(async () => {
-    // Persist state BEFORE requesting fullscreen (which may remount the widget)
     if (finalComposition) persistComposition(finalComposition);
     persistEditMode(true);
     setIsEditMode(true);
-    try {
-      await appRef.current?.requestDisplayMode?.({ mode: "fullscreen" });
-    } catch { /* noop */ }
-  }, [finalComposition]);
+    try { await requestDisplayMode("fullscreen"); } catch { /* noop */ }
+  }, [finalComposition, requestDisplayMode]);
 
   const exitEditMode = useCallback(async () => {
     setIsEditMode(false);
     persistEditMode(false);
-    try {
-      await appRef.current?.requestDisplayMode?.({ mode: "inline" });
-    } catch { /* noop */ }
-  }, []);
+    try { await requestDisplayMode("inline"); } catch { /* noop */ }
+  }, [requestDisplayMode]);
 
-  const handleSendFollowUp = useCallback(async (prompt: string) => {
-    try {
-      await appRef.current?.sendFollowUpMessage?.(prompt);
-    } catch { /* noop */ }
-  }, []);
-
-  // --- Loading: no data yet ---
+  // --- Loading ---
   if (!composition) {
+    const title = partialInput?.title || rawInput?.title;
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: 240,
-          backgroundColor: bgPrimary,
-          borderRadius: 8,
-          fontFamily: "system-ui, -apple-system, sans-serif",
-        }}
-      >
-        <div style={{ textAlign: "center", color: textSecondary }}>
-          <StreamingDot color={textSecondary} size={8} />
-          <div style={{ fontSize: 13, marginTop: 12 }}>
-            {toolInput?.title
-              ? `Building "${toolInput.title}"...`
-              : "Generating..."}
+      <McpUseProvider autoSize>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 240,
+            backgroundColor: bgPrimary,
+            borderRadius: 8,
+            fontFamily: "system-ui, -apple-system, sans-serif",
+          }}
+        >
+          <div style={{ textAlign: "center", color: textSecondary }}>
+            <LoadingDot />
+            <div style={{ fontSize: 13, marginTop: 12 }}>
+              {title ? `Building "${title}"...` : "Generating..."}
+            </div>
           </div>
         </div>
-      </div>
+      </McpUseProvider>
     );
   }
 
   // --- Edit mode ---
   if (isEditMode && finalComposition) {
     return (
-      <EditModeWrapper
-        composition={finalComposition}
-        colors={editorColors}
-        sendFollowUpMessage={handleSendFollowUp}
-        onClose={exitEditMode}
-      />
+      <McpUseProvider autoSize>
+        <EditModeWrapper
+          composition={finalComposition}
+          colors={editorColors}
+          sendFollowUpMessage={sendFollowUpMessage}
+          onClose={exitEditMode}
+        />
+      </McpUseProvider>
     );
   }
 
-  // --- Streaming or View mode ---
+  // --- Player view (streaming or final) ---
   const meta = composition.meta;
   const sceneCount = composition.scenes?.length || 0;
   const durationSec = (totalDuration / meta.fps).toFixed(1);
 
   return (
-    <div
-      style={{
-        borderRadius: 8,
-        overflow: "hidden",
-        backgroundColor: bgPrimary,
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
-    >
-      {/* Header */}
+    <McpUseProvider autoSize>
       <div
         style={{
-          padding: "8px 14px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          backgroundColor: bgSecondary,
-          borderBottom: `1px solid ${borderColor}`,
+          borderRadius: 8,
+          overflow: "hidden",
+          backgroundColor: bgPrimary,
+          fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
         <div
           style={{
+            padding: "8px 14px",
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            color: textPrimary,
-            fontSize: 13,
-            fontWeight: 500,
+            justifyContent: "space-between",
+            backgroundColor: bgSecondary,
+            borderBottom: `1px solid ${borderColor}`,
           }}
         >
-          {isStreaming && <StreamingDot color={textSecondary} />}
-          <span>{meta.title || "Untitled"}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: textPrimary, fontSize: 13, fontWeight: 500 }}>
+            {isStreaming && <LoadingDot />}
+            <span>{meta.title || "Untitled"}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textSecondary }}>
+            <span>{meta.width}x{meta.height}</span>
+            <span>{meta.fps}fps</span>
+            <span>{sceneCount} scene{sceneCount !== 1 ? "s" : ""}</span>
+            {!isStreaming && <span>{durationSec}s</span>}
+            {!isStreaming && (
+              <button
+                onClick={enterEditMode}
+                style={{
+                  padding: "3px 10px",
+                  fontSize: 11,
+                  fontWeight: 500,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  backgroundColor: "transparent",
+                  color: textPrimary,
+                  fontFamily: "inherit",
+                }}
+              >
+                Edit
+              </button>
+            )}
+          </div>
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            fontSize: 11,
-            color: textSecondary,
-          }}
-        >
-          <span>{meta.width}x{meta.height}</span>
-          <span>{meta.fps}fps</span>
-          <span>{sceneCount} scene{sceneCount !== 1 ? "s" : ""}</span>
-          {!isStreaming && <span>{durationSec}s</span>}
-          {!isStreaming && (
-            <button
-              onClick={enterEditMode}
-              style={{
-                padding: "3px 10px",
-                fontSize: 11,
-                fontWeight: 500,
-                border: `1px solid ${borderColor}`,
-                borderRadius: 4,
-                cursor: "pointer",
-                backgroundColor: "transparent",
-                color: textPrimary,
-                fontFamily: "inherit",
-              }}
-            >
-              Edit
-            </button>
-          )}
+        <div style={{ backgroundColor: "#000" }}>
+          <Player
+            key={isStreaming ? `s-${sceneCount}` : "final"}
+            ref={playerRef}
+            component={DynamicComposition}
+            inputProps={{ scenes: composition.scenes }}
+            durationInFrames={totalDuration}
+            fps={meta.fps}
+            compositionWidth={meta.width}
+            compositionHeight={meta.height}
+            controls={!isStreaming}
+            autoPlay
+            loop
+            style={{ width: "100%" }}
+          />
         </div>
       </div>
-
-      {/* Player */}
-      <div style={{ backgroundColor: "#000" }}>
-        <Player
-          key={isStreaming ? `streaming-${sceneCount}` : "final"}
-          ref={playerRef}
-          component={DynamicComposition}
-          inputProps={{ scenes: composition.scenes }}
-          durationInFrames={totalDuration}
-          fps={meta.fps}
-          compositionWidth={meta.width}
-          compositionHeight={meta.height}
-          controls={!isStreaming}
-          autoPlay
-          loop
-          style={{ width: "100%" }}
-        />
-      </div>
-    </div>
+    </McpUseProvider>
   );
 };
 
-// --- Pulsing dot indicator for streaming state ---
-const StreamingDot: React.FC<{ color: string; size?: number }> = ({
-  color,
-  size = 10,
-}) => {
+// --- Minimal loading indicator ---
+const LoadingDot: React.FC = () => {
   const [opacity, setOpacity] = useState(1);
-
   useEffect(() => {
     let frame: number;
     let start: number;
     const animate = (ts: number) => {
       if (!start) start = ts;
-      const elapsed = (ts - start) % 1200;
-      setOpacity(0.3 + 0.7 * Math.abs(Math.sin((elapsed / 1200) * Math.PI)));
+      setOpacity(0.3 + 0.7 * Math.abs(Math.sin(((ts - start) % 1200) / 1200 * Math.PI)));
       frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
   }, []);
-
   return (
-    <span
-      style={{
-        display: "inline-block",
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        backgroundColor: color,
-        opacity,
-        transition: "opacity 0.1s",
-      }}
-    />
+    <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", backgroundColor: "currentColor", opacity }} />
   );
 };
 
-/**
- * Wrapper that initializes the composition editor hook.
- * Separated so useCompositionEditor doesn't run until edit mode.
- */
+// --- Edit mode wrapper ---
 const EditModeWrapper: React.FC<{
   composition: CompositionData;
   colors: ReturnType<typeof getEditorTheme>;
@@ -502,8 +410,9 @@ const EditModeWrapper: React.FC<{
 
   const handleSendToAI = useCallback(async () => {
     const json = editor.getJSON();
-    const prompt = `Here is the updated composition I've edited. Please review my changes and continue iterating on it:\n\n\`\`\`json\n${json}\n\`\`\`\n\nPlease call create_composition with these updated scenes to apply the changes.`;
-    await sendFollowUpMessage(prompt);
+    await sendFollowUpMessage(
+      `Here is the updated composition:\n\n\`\`\`json\n${json}\n\`\`\`\n\nPlease call create_composition with these updated scenes.`
+    );
   }, [editor, sendFollowUpMessage]);
 
   return (
