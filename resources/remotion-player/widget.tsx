@@ -6,6 +6,8 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { DynamicComposition } from "./components/DynamicComposition";
 import type { CompositionData, SceneData } from "../../types";
 
+const VERSION = "0.1.2";
+
 const propSchema = z.object({
   composition: z.string().describe("JSON string of the composition"),
 });
@@ -159,7 +161,10 @@ export default function RemotionPlayerWidget() {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#000", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: bg2, borderBottom: `1px solid ${bd}`, flexShrink: 0 }}>
-          <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
+            <span style={{ color: fg2, fontSize: 9, opacity: 0.5 }}>v{VERSION}</span>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: fg2 }}>
             <span>{meta.width}x{meta.height} · {meta.fps}fps · {sceneCount} scene{sceneCount !== 1 ? "s" : ""} · {(dur / meta.fps).toFixed(1)}s</span>
             <button onClick={download} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, border: `1px solid ${bd}`, borderRadius: 4, cursor: "pointer", background: "transparent", color: fg, fontFamily: "inherit" }}>
@@ -192,9 +197,12 @@ export default function RemotionPlayerWidget() {
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
       <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", background: bg2, borderBottom: `1px solid ${bd}` }}>
-        <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>
-          {meta.title}{isStreaming ? ` (${sceneCount} scene${sceneCount !== 1 ? "s" : ""}...)` : ""}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>
+            {meta.title}{isStreaming ? ` (${sceneCount} scene${sceneCount !== 1 ? "s" : ""}...)` : ""}
+          </span>
+          <span style={{ color: fg2, fontSize: 9, opacity: 0.5 }}>v{VERSION}</span>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: fg2 }}>
           {!isStreaming && (
             <span>{meta.width}x{meta.height} · {meta.fps}fps · {sceneCount} scene{sceneCount !== 1 ? "s" : ""} · {(dur / meta.fps).toFixed(1)}s</span>
