@@ -65,8 +65,8 @@ export const EditorLayout: React.FC<{
         flexDirection: "column",
         height: "100%",
         backgroundColor: colors.bgPrimary,
-        fontFamily: "sans-serif",
-        borderRadius: 12,
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        borderRadius: 8,
         overflow: "hidden",
       }}
     >
@@ -92,20 +92,19 @@ export const EditorLayout: React.FC<{
             color: colors.textPrimary,
           }}
         >
-          <span style={{ fontSize: 14 }}>&#9998;</span>
-          <span>Editing: {meta.title}</span>
+          <span>{meta.title}</span>
           {isDirty && (
             <span
               style={{
                 fontSize: 9,
-                padding: "1px 6px",
-                borderRadius: 8,
-                backgroundColor: colors.accent + "30",
-                color: colors.accent,
-                fontWeight: 600,
+                padding: "2px 6px",
+                borderRadius: 3,
+                backgroundColor: colors.bgTertiary,
+                color: colors.textSecondary,
+                fontWeight: 500,
               }}
             >
-              Modified
+              Unsaved
             </span>
           )}
         </div>

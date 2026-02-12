@@ -13,22 +13,22 @@ type ThemeColors = {
 export function getEditorTheme(isDark: boolean): ThemeColors {
   return isDark
     ? {
-        bgPrimary: "#16213e",
-        bgSecondary: "#1a1a2e",
-        bgTertiary: "#0f3460",
+        bgPrimary: "#141414",
+        bgSecondary: "#1c1c1c",
+        bgTertiary: "#2a2a2a",
         textPrimary: "#e0e0e0",
-        textSecondary: "#888888",
-        borderColor: "#0f3460",
-        accent: "#4a9eff",
+        textSecondary: "#777777",
+        borderColor: "#2a2a2a",
+        accent: "#ffffff",
       }
     : {
-        bgPrimary: "#f8f9fa",
-        bgSecondary: "#e9ecef",
-        bgTertiary: "#dee2e6",
-        textPrimary: "#333333",
-        textSecondary: "#666666",
-        borderColor: "#dee2e6",
-        accent: "#0066cc",
+        bgPrimary: "#ffffff",
+        bgSecondary: "#f5f5f5",
+        bgTertiary: "#e8e8e8",
+        textPrimary: "#1a1a1a",
+        textSecondary: "#888888",
+        borderColor: "#e0e0e0",
+        accent: "#1a1a1a",
       };
 }
 
@@ -312,12 +312,14 @@ export const EditorButton: React.FC<{
     variant === "primary"
       ? colors.accent
       : variant === "danger"
-        ? "#e74c3c"
+        ? "#dc3545"
         : colors.bgTertiary;
   const textColor =
-    variant === "primary" || variant === "danger"
-      ? "#ffffff"
-      : colors.textPrimary;
+    variant === "primary"
+      ? (colors.accent === "#ffffff" ? "#000000" : "#ffffff")
+      : variant === "danger"
+        ? "#ffffff"
+        : colors.textPrimary;
 
   return (
     <button

@@ -286,12 +286,12 @@ const RemotionPlayerWidget: React.FC = () => {
   }, [composition?.scenes]);
 
   const isDark = theme === "dark";
-  const bgPrimary = isDark ? "#16213e" : "#f8f9fa";
-  const bgSecondary = isDark ? "#1a1a2e" : "#e9ecef";
-  const textPrimary = isDark ? "#e0e0e0" : "#333333";
-  const textSecondary = isDark ? "#888888" : "#999999";
-  const borderColor = isDark ? "#0f3460" : "#dee2e6";
-  const accent = isDark ? "#4a9eff" : "#0066cc";
+  const bgPrimary = isDark ? "#141414" : "#ffffff";
+  const bgSecondary = isDark ? "#1c1c1c" : "#f5f5f5";
+  const textPrimary = isDark ? "#e0e0e0" : "#1a1a1a";
+  const textSecondary = isDark ? "#777777" : "#888888";
+  const borderColor = isDark ? "#2a2a2a" : "#e0e0e0";
+  const accent = isDark ? "#ffffff" : "#1a1a1a";
   const editorColors = getEditorTheme(isDark);
 
   const enterEditMode = useCallback(async () => {
@@ -326,21 +326,18 @@ const RemotionPlayerWidget: React.FC = () => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          minHeight: 280,
+          minHeight: 240,
           backgroundColor: bgPrimary,
-          borderRadius: 12,
-          fontFamily: "sans-serif",
+          borderRadius: 8,
+          fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
         <div style={{ textAlign: "center", color: textSecondary }}>
-          <StreamingDot color={accent} size={32} />
-          <div style={{ fontSize: 14, marginTop: 16 }}>
+          <StreamingDot color={textSecondary} size={8} />
+          <div style={{ fontSize: 13, marginTop: 12 }}>
             {toolInput?.title
-              ? `Building scenes for "${toolInput.title}"...`
-              : "Generating composition..."}
-          </div>
-          <div style={{ fontSize: 11, marginTop: 6, opacity: 0.6 }}>
-            Preview will appear as scenes stream in
+              ? `Building "${toolInput.title}"...`
+              : "Generating..."}
           </div>
         </div>
       </div>
@@ -367,16 +364,16 @@ const RemotionPlayerWidget: React.FC = () => {
   return (
     <div
       style={{
-        borderRadius: 12,
+        borderRadius: 8,
         overflow: "hidden",
         backgroundColor: bgPrimary,
-        fontFamily: "sans-serif",
+        fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
       {/* Header */}
       <div
         style={{
-          padding: "10px 16px",
+          padding: "8px 14px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -391,60 +388,47 @@ const RemotionPlayerWidget: React.FC = () => {
             gap: 8,
             color: textPrimary,
             fontSize: 13,
-            fontWeight: 600,
+            fontWeight: 500,
           }}
         >
-          {isStreaming ? (
-            <StreamingDot color={accent} />
-          ) : (
-            <span style={{ fontSize: 16 }}>&#127916;</span>
-          )}
-          <span>{isStreaming ? (meta.title || "Creating...") : meta.title}</span>
-          {isStreaming && (
-            <span style={{ fontSize: 11, color: accent, fontWeight: 400 }}>
-              streaming...
-            </span>
-          )}
+          {isStreaming && <StreamingDot color={textSecondary} />}
+          <span>{meta.title || "Untitled"}</span>
         </div>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 12,
+            gap: 10,
             fontSize: 11,
             color: textSecondary,
           }}
         >
           <span>{meta.width}x{meta.height}</span>
           <span>{meta.fps}fps</span>
-          <span>
-            {sceneCount} scene{sceneCount !== 1 ? "s" : ""}
-            {isStreaming ? " loaded" : ""}
-          </span>
+          <span>{sceneCount} scene{sceneCount !== 1 ? "s" : ""}</span>
           {!isStreaming && <span>{durationSec}s</span>}
           {!isStreaming && (
             <button
               onClick={enterEditMode}
               style={{
-                padding: "4px 10px",
+                padding: "3px 10px",
                 fontSize: 11,
-                fontWeight: 600,
-                border: `1px solid ${accent}`,
+                fontWeight: 500,
+                border: `1px solid ${borderColor}`,
                 borderRadius: 4,
                 cursor: "pointer",
                 backgroundColor: "transparent",
-                color: accent,
+                color: textPrimary,
                 fontFamily: "inherit",
-                transition: "background-color 0.15s",
               }}
             >
-              &#9998; Edit
+              Edit
             </button>
           )}
         </div>
       </div>
 
-      {/* Player — renders during both streaming and final */}
+      {/* Player */}
       <div style={{ backgroundColor: "#000" }}>
         <Player
           key={isStreaming ? `streaming-${sceneCount}` : "final"}
