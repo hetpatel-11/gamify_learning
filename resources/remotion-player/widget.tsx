@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback, Component, type ErrorInfo, type ReactNode } from "react";
 import { z } from "zod";
 import type { WidgetMetadata } from "mcp-use/react";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
@@ -6,7 +6,45 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { DynamicComposition } from "./components/DynamicComposition";
 import type { CompositionData, SceneData } from "../../types";
 
-const VERSION = "0.1.5";
+// Error boundary that sends runtime errors back to the LLM
+class PlayerErrorBoundary extends Component<
+  { children: ReactNode; appRef: React.RefObject<any>; dark: boolean },
+  { error: string | null }
+> {
+  state = { error: null as string | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error: error.message };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    const msg = `Runtime error in Remotion Player: ${error.message}`;
+    try {
+      this.props.appRef.current?.sendFollowUpMessage?.({
+        prompt: `The video composition had a runtime error:\n\n\`${error.message}\`\n\nPlease fix the composition and call create_composition again.`,
+      });
+    } catch {}
+    console.error("[remotion]", msg, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      const dark = this.props.dark;
+      return (
+        <div style={{
+          padding: 16, background: dark ? "#1c1c1c" : "#f5f5f5", borderRadius: 8,
+          fontFamily: "system-ui, sans-serif", color: dark ? "#ff6b6b" : "#dc3545", fontSize: 13,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Render error</div>
+          <div style={{ opacity: 0.8, fontSize: 12 }}>{this.state.error}</div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const VERSION = "0.1.6";
 
 const propSchema = z.object({
   composition: z.string().describe("JSON string of the composition"),
@@ -185,19 +223,21 @@ export default function RemotionPlayerWidget() {
           </div>
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Player
-            ref={ref}
-            component={DynamicComposition}
-            inputProps={{ scenes }}
-            durationInFrames={dur}
-            fps={meta.fps}
-            compositionWidth={meta.width}
-            compositionHeight={meta.height}
-            controls
-            autoPlay
-            loop
-            style={{ width: "100%", maxHeight: "100%" }}
-          />
+          <PlayerErrorBoundary appRef={appRef} dark={dark}>
+            <Player
+              ref={ref}
+              component={DynamicComposition}
+              inputProps={{ scenes }}
+              durationInFrames={dur}
+              fps={meta.fps}
+              compositionWidth={meta.width}
+              compositionHeight={meta.height}
+              controls
+              autoPlay
+              loop
+              style={{ width: "100%", maxHeight: "100%" }}
+            />
+          </PlayerErrorBoundary>
         </div>
       </div>
     );
@@ -228,20 +268,22 @@ export default function RemotionPlayerWidget() {
           )}
         </div>
       </div>
-      <Player
-        key={isStreaming ? `s-${sceneCount}` : "final"}
-        ref={ref}
-        component={DynamicComposition}
-        inputProps={{ scenes }}
-        durationInFrames={dur}
-        fps={meta.fps}
-        compositionWidth={meta.width}
-        compositionHeight={meta.height}
-        controls={!isStreaming}
-        autoPlay
-        loop
-        style={{ width: "100%" }}
-      />
+      <PlayerErrorBoundary appRef={appRef} dark={dark}>
+        <Player
+          key={isStreaming ? `s-${sceneCount}` : "final"}
+          ref={ref}
+          component={DynamicComposition}
+          inputProps={{ scenes }}
+          durationInFrames={dur}
+          fps={meta.fps}
+          compositionWidth={meta.width}
+          compositionHeight={meta.height}
+          controls={!isStreaming}
+          autoPlay
+          loop
+          style={{ width: "100%" }}
+        />
+      </PlayerErrorBoundary>
     </div>
   );
 }
