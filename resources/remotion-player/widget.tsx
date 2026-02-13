@@ -3,9 +3,8 @@ import { z } from "zod";
 import type { WidgetMetadata } from "mcp-use/react";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
 import { Player, type PlayerRef } from "@remotion/player";
-import { DynamicComposition } from "./components/DynamicComposition";
 import { CodeComposition } from "./components/CodeComposition";
-import type { CompositionData, SceneData, VideoCodeData } from "../../types";
+import type { VideoCodeData } from "../../types";
 
 class PlayerErrorBoundary extends Component<
   { children: ReactNode; appRef: React.RefObject<any>; dark: boolean },
@@ -14,10 +13,9 @@ class PlayerErrorBoundary extends Component<
   state = { error: null as string | null };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    const isCode = error.message.startsWith("Compilation error:");
     try {
       this.props.appRef.current?.sendFollowUpMessage?.({
-        prompt: `The video had a ${isCode ? "compilation" : "runtime"} error:\n\n\`${error.message}\`\n\nPlease fix and call ${isCode ? "create_video" : "the tool"} again.`,
+        prompt: `The video had an error:\n\n\`${error.message}\`\n\nPlease fix the code and call create_video again.`,
       });
     } catch {}
     console.error("[remotion]", error.message, info.componentStack);
@@ -36,11 +34,10 @@ class PlayerErrorBoundary extends Component<
   }
 }
 
-const VERSION = "0.2.2";
+const VERSION = "0.3.0";
 
 const propSchema = z.object({
-  composition: z.string().optional().describe("JSON composition (JSON mode)"),
-  videoCode: z.string().optional().describe("JSON with meta + code (code mode)"),
+  videoCode: z.string().optional().describe("JSON with meta + code"),
 });
 
 // @ts-expect-error - Zod v4 deep type instantiation
@@ -51,7 +48,7 @@ export const widgetMetadata: WidgetMetadata = {
   metadata: {
     prefersBorder: true,
     autoResize: true,
-    widgetDescription: "Renders a Remotion video composition",
+    widgetDescription: "Renders a Remotion video",
     csp: {
       resourceDomains: ["https://images.unsplash.com", "https://picsum.photos"],
       scriptDirectives: ["'unsafe-eval'"],
@@ -59,64 +56,23 @@ export const widgetMetadata: WidgetMetadata = {
   },
 };
 
-// --- JSON mode helpers ---
-
-function calcDuration(scenes: SceneData[]): number {
-  let t = 0;
-  for (let i = 0; i < scenes.length; i++) {
-    t += scenes[i].durationInFrames;
-    if (i < scenes.length - 1 && scenes[i].transition) t -= scenes[i].transition!.durationInFrames;
-  }
-  return Math.max(t, 1);
-}
-
-function tryParseScenes(raw: unknown): SceneData[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw.filter((s) => s?.id && s?.durationInFrames && s?.background);
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.filter((s: any) => s?.id && s?.durationInFrames && s?.background);
-  } catch {
-    const scenes: SceneData[] = [];
-    let depth = 0, start = -1;
-    for (let i = 0; i < raw.length; i++) {
-      if (raw[i] === "{") { if (depth === 0) start = i; depth++; }
-      else if (raw[i] === "}") { depth--; if (depth === 0 && start >= 0) { try { const o = JSON.parse(raw.slice(start, i + 1)); if (o.id && o.durationInFrames && o.background) scenes.push(o); } catch {} start = -1; } }
-    }
-    return scenes;
-  }
-  return [];
-}
-
-function buildComposition(input: Record<string, unknown> | null): CompositionData | null {
-  if (!input) return null;
-  const scenes = tryParseScenes(input.scenes);
-  if (!scenes.length) return null;
-  return { meta: { title: (input.title as string) || "Untitled", width: (input.width as number) || 1920, height: (input.height as number) || 1080, fps: (input.fps as number) || 30 }, scenes };
-}
-
 // --- Persist last video across widget instances ---
 const PREV_KEY = "remotion-mcp-prev";
-function savePrev(data: CompositionData | VideoCodeData) {
+function savePrev(data: VideoCodeData) {
   try { localStorage.setItem(PREV_KEY, JSON.stringify(data)); } catch {}
 }
-function loadPrev(): { comp?: CompositionData; code?: VideoCodeData } | null {
+function loadPrev(): VideoCodeData | null {
   try {
     const raw = localStorage.getItem(PREV_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed.code && parsed.meta?.durationInFrames) return { code: parsed };
-    if (parsed.scenes) return { comp: parsed };
+    if (parsed.code && parsed.meta?.durationInFrames) return parsed;
   } catch {}
   return null;
 }
 
-// --- Code mode helpers ---
-
-function buildVideoCode(input: Record<string, unknown> | null): VideoCodeData | null {
+function parseVideoCode(input: Record<string, unknown> | null): VideoCodeData | null {
   if (!input) return null;
-  // From videoCode prop (server sends JSON string)
   const raw = input.videoCode;
   if (raw && typeof raw === "string") {
     try {
@@ -124,7 +80,6 @@ function buildVideoCode(input: Record<string, unknown> | null): VideoCodeData | 
       if (p.meta && p.code && p.code.trim() && p.meta.durationInFrames > 0) return p;
     } catch {}
   }
-  // From direct tool input (code field)
   const code = input.code;
   const dur = input.durationInFrames;
   if (code && typeof code === "string" && code.trim() && dur && (dur as number) > 0) {
@@ -136,13 +91,10 @@ function buildVideoCode(input: Record<string, unknown> | null): VideoCodeData | 
   return null;
 }
 
-// --- Widget ---
-
 export default function RemotionPlayerWidget() {
   const [toolInput, setToolInput] = useState<Record<string, unknown> | null>(null);
   const [isFinal, setIsFinal] = useState(false);
-  const [resultComp, setResultComp] = useState<CompositionData | null>(null);
-  const [resultCode, setResultCode] = useState<VideoCodeData | null>(null);
+  const [result, setResult] = useState<VideoCodeData | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(
     typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light"
@@ -158,47 +110,23 @@ export default function RemotionPlayerWidget() {
       appRef.current = app;
       app.ontoolinputpartial = (params: any) => { setIsFinal(false); setToolInput(params?.arguments ?? params ?? {}); };
       app.ontoolinput = (params: any) => { setIsFinal(true); setToolInput(params?.arguments ?? params ?? {}); };
-      app.ontoolresult = (result: any) => {
-        const props = result?.structuredContent?.["mcp-use/props"] ?? result?.content?.[0]?.["mcp-use/props"] ?? {};
-        // JSON mode
-        if (props.composition && typeof props.composition === "string") {
-          try { setResultComp(JSON.parse(props.composition)); } catch {}
-        }
-        // Code mode
+      app.ontoolresult = (r: any) => {
+        const props = r?.structuredContent?.["mcp-use/props"] ?? r?.content?.[0]?.["mcp-use/props"] ?? {};
         if (props.videoCode && typeof props.videoCode === "string") {
-          try { const p = JSON.parse(props.videoCode); if (p.meta && p.code) setResultCode(p); } catch {}
+          try { const p = JSON.parse(props.videoCode); if (p.meta && p.code) setResult(p); } catch {}
         }
       };
       app.onhostcontextchanged = (params: any) => { if (params?.theme) setTheme(params.theme); };
     },
   });
 
-  // Load previous video from localStorage (survives across widget instances)
   const [prev] = useState(() => loadPrev());
+  const finalData = useMemo(() => result || (isFinal ? parseVideoCode(toolInput) : null), [result, isFinal, toolInput]);
+  const prevRef = useRef<VideoCodeData | null>(prev);
+  useEffect(() => { if (finalData) { prevRef.current = finalData; savePrev(finalData); } }, [finalData]);
 
-  // JSON mode state
-  const streamingComp = useMemo(() => (!isFinal ? buildComposition(toolInput) : null), [isFinal, toolInput]);
-  const finalComp = useMemo(() => resultComp || (isFinal ? buildComposition(toolInput) : null), [resultComp, isFinal, toolInput]);
-  const prevCompRef = useRef<CompositionData | null>(prev?.comp || null);
-  useEffect(() => { if (finalComp) { prevCompRef.current = finalComp; savePrev(finalComp); } }, [finalComp]);
-
-  // Code mode state
-  const finalCode = useMemo(() => resultCode || (isFinal ? buildVideoCode(toolInput) : null), [resultCode, isFinal, toolInput]);
-  const prevCodeRef = useRef<VideoCodeData | null>(prev?.code || null);
-  useEffect(() => { if (finalCode) { prevCodeRef.current = finalCode; savePrev(finalCode); } }, [finalCode]);
-
-  // Determine active mode and data
-  const isCodeMode = !!(finalCode || prevCodeRef.current || buildVideoCode(toolInput));
-  const comp = finalComp || streamingComp || prevCompRef.current;
-  const codeData = finalCode || prevCodeRef.current;
-  const isStreaming = !isFinal && !finalComp && !finalCode;
-
-  // Active rendering data
-  const activeMeta = isCodeMode ? codeData?.meta : comp?.meta;
-  const activeDur = isCodeMode
-    ? (codeData?.meta.durationInFrames || 1)
-    : (comp?.scenes ? calcDuration(comp.scenes) : 1);
-  const hasData = isCodeMode ? !!codeData : !!comp;
+  const data = finalData || prevRef.current;
+  const hasData = !!data;
 
   const toggleFullscreen = useCallback(() => {
     const next = !isFullscreen;
@@ -207,17 +135,17 @@ export default function RemotionPlayerWidget() {
   }, [isFullscreen]);
 
   useEffect(() => {
-    if (!activeMeta || isFullscreen) return;
-    const aspect = activeMeta.height / activeMeta.width;
+    if (!data || isFullscreen) return;
+    const aspect = data.meta.height / data.meta.width;
     const w = containerRef.current?.offsetWidth || 600;
-    try { appRef.current?.notifyIntrinsicHeight?.(Math.round(w * aspect) + 37); } catch {}
-  }, [activeMeta, isFullscreen]);
+    try { appRef.current?.notifyIntrinsicHeight?.(Math.round(w * aspect) + 30); } catch {}
+  }, [data, isFullscreen]);
 
   const dark = theme === "dark";
   const bg = dark ? "#141414" : "#fff";
-  const bg2 = dark ? "#1c1c1c" : "#f5f5f5";
   const fg = dark ? "#e0e0e0" : "#1a1a1a";
   const fg2 = dark ? "#777" : "#888";
+  const bg2 = dark ? "#1c1c1c" : "#f5f5f5";
   const bd = dark ? "#2a2a2a" : "#e0e0e0";
 
   if (!hasData) {
@@ -228,26 +156,7 @@ export default function RemotionPlayerWidget() {
     );
   }
 
-  const title = activeMeta?.title || "Untitled";
-
-  const playerEl = (
-    <PlayerErrorBoundary appRef={appRef} dark={dark}>
-      <Player
-        key={isStreaming ? `s-${comp?.scenes?.length || 0}` : "final"}
-        ref={ref}
-        component={isCodeMode ? CodeComposition as any : DynamicComposition}
-        inputProps={isCodeMode ? { code: codeData!.code } as any : { scenes: comp!.scenes }}
-        durationInFrames={activeDur}
-        fps={activeMeta!.fps}
-        compositionWidth={activeMeta!.width}
-        compositionHeight={activeMeta!.height}
-        controls={!isStreaming}
-        autoPlay
-        loop
-        style={{ width: "100%", maxHeight: isFullscreen ? "100%" : undefined }}
-      />
-    </PlayerErrorBoundary>
-  );
+  const { meta, code } = data!;
 
   const fsIcon = isFullscreen
     ? <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 2 6 6 2 6"/><polyline points="10 14 10 10 14 10"/><line x1="2" y1="2" x2="6" y2="6"/><line x1="14" y1="14" x2="10" y2="10"/></svg>
@@ -255,11 +164,29 @@ export default function RemotionPlayerWidget() {
 
   const header = (
     <div style={{ padding: "6px 10px 6px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-      <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{title}</span>
+      <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
       <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", alignItems: "center", justifyContent: "center", color: fg2, borderRadius: 4, opacity: 0.7 }}>
         {fsIcon}
       </button>
     </div>
+  );
+
+  const playerEl = (
+    <PlayerErrorBoundary appRef={appRef} dark={dark}>
+      <Player
+        ref={ref}
+        component={CodeComposition as any}
+        inputProps={{ code }}
+        durationInFrames={meta.durationInFrames}
+        fps={meta.fps}
+        compositionWidth={meta.width}
+        compositionHeight={meta.height}
+        controls
+        autoPlay
+        loop
+        style={{ width: "100%", maxHeight: isFullscreen ? "100%" : undefined }}
+      />
+    </PlayerErrorBoundary>
   );
 
   if (isFullscreen) {
