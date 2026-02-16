@@ -178,6 +178,8 @@ export default function RemotionPlayerWidget() {
     props,
     isPending,
     theme,
+    displayMode,
+    isAvailable,
     toolInput,
     partialToolInput,
     isStreaming,
@@ -185,10 +187,10 @@ export default function RemotionPlayerWidget() {
     requestDisplayMode,
   } = useWidget<z.infer<typeof propSchema>>();
 
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const ref = useRef<PlayerRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevRef = useRef<VideoProjectData | null>(null);
+  const isFullscreen = displayMode === "fullscreen" && isAvailable;
 
   const streamingInput = isStreaming ? (partialToolInput as Record<string, unknown> | null) : null;
 
@@ -302,13 +304,10 @@ export default function RemotionPlayerWidget() {
   }, [compileError, sendFollowUpMessage]);
 
   const toggleFullscreen = useCallback(() => {
-    const next = !isFullscreen;
-    setIsFullscreen(next);
-    try {
-      requestDisplayMode(next ? "fullscreen" : "inline");
-    } catch {
-      // Ignore display mode failures.
-    }
+    const nextMode = isFullscreen ? "inline" : "fullscreen";
+    requestDisplayMode(nextMode).catch((error) => {
+      console.error(`[remotion] Failed to request display mode "${nextMode}"`, error);
+    });
   }, [isFullscreen, requestDisplayMode]);
 
   const handlePlayerError = useCallback(
@@ -459,18 +458,19 @@ export default function RemotionPlayerWidget() {
       <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
       <button
         onClick={toggleFullscreen}
+        disabled={!isAvailable}
         title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
         style={{
           background: "none",
           border: "none",
-          cursor: "pointer",
+          cursor: isAvailable ? "pointer" : "not-allowed",
           padding: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: fg2,
           borderRadius: 4,
-          opacity: 0.7,
+          opacity: isAvailable ? 0.7 : 0.35,
         }}
       >
         {fsIcon}
