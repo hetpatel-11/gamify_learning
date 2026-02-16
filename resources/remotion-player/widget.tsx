@@ -173,6 +173,37 @@ function readMetadataOverrides(overrides: Record<string, unknown>, fallback: Vid
   };
 }
 
+const LOADING_WORDS = [
+  "Bamboozleding",
+  "Discombobulateding",
+  "Cattywampusing",
+  "Malarkeying",
+  "Brouhahaing",
+  "Skedaddleing",
+  "Doohickeying",
+  "Persnicketying",
+  "Whatnoting",
+  "Gobsmackeding",
+  "Flibbertigibbeting",
+  "Tenterhooksing",
+  "Poppycocking",
+  "Whippersnappering",
+  "Flabbergasteding",
+  "Shenanigansing",
+  "Lollygaging",
+  "Kerfuffleing",
+  "Nincompooping",
+  "Pumpernickeling",
+  "Thingamajiging",
+  "Whatsiting",
+  "Whatchamacalliting",
+  "Flummoxeding",
+  "Dingleberrying",
+  "Gobbledygooking",
+  "Canoodling",
+  "Codswalloping",
+];
+
 export default function RemotionPlayerWidget() {
   const {
     props,
@@ -180,8 +211,6 @@ export default function RemotionPlayerWidget() {
     theme,
     displayMode,
     isAvailable,
-    toolInput,
-    partialToolInput,
     isStreaming,
     sendFollowUpMessage,
     requestDisplayMode,
@@ -191,8 +220,6 @@ export default function RemotionPlayerWidget() {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevRef = useRef<VideoProjectData | null>(null);
   const isFullscreen = displayMode === "fullscreen" && isAvailable;
-
-  const streamingInput = isStreaming ? (partialToolInput as Record<string, unknown> | null) : null;
 
   const rawVideoProject = useMemo(() => {
     const value = (props as Record<string, unknown> | null)?.videoProject;
@@ -214,6 +241,35 @@ export default function RemotionPlayerWidget() {
 
   const data = finalData || ((isPending || isStreaming) ? prevRef.current : null);
   const hasData = !!data;
+  const isLoading = !hasData && (isPending || isStreaming);
+  const [loadingWordIndex, setLoadingWordIndex] = useState(0);
+  const [loadingWordVisible, setLoadingWordVisible] = useState(true);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingWordVisible(true);
+      return;
+    }
+
+    const rotateEveryMs = 2500;
+    const fadeMs = 220;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const intervalId = window.setInterval(() => {
+      setLoadingWordVisible(false);
+      timeoutId = window.setTimeout(() => {
+        setLoadingWordIndex((prev) => (prev + 1) % LOADING_WORDS.length);
+        setLoadingWordVisible(true);
+      }, fadeMs);
+    }, rotateEveryMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [isLoading]);
 
   const mergedProps = useMemo(() => {
     if (!data) {
@@ -329,14 +385,8 @@ export default function RemotionPlayerWidget() {
   const fg2 = dark ? "#777" : "#888";
 
   if (!hasData) {
-    const isLoading = isPending || isStreaming;
-    const title = (streamingInput?.title as string | undefined) || (toolInput as any)?.title;
     const statusText =
-      isLoading
-        ? title
-          ? `Creating "${title}"...`
-          : "Creating..."
-        : "No video project data was returned. Check the tool output and call create_video or update_video again.";
+      "No video project data was returned. Check the tool output and call create_video or update_video again.";
 
     if (isLoading) {
       return (
@@ -372,14 +422,30 @@ export default function RemotionPlayerWidget() {
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 6,
+                gap: 0,
                 color: "#22344a",
                 textAlign: "center",
                 padding: 20,
                 textShadow: "0 1px 2px rgba(255,255,255,0.35)",
               }}
             >
-              <div style={{ fontSize: 15, fontWeight: 500 }}>{statusText}</div>
+              <div style={{ minHeight: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 500,
+                    letterSpacing: 0.35,
+                    lineHeight: 1.0,
+                    opacity: loadingWordVisible ? 0.95 : 0,
+                    transform: loadingWordVisible
+                      ? "translateY(0px) scale(1)"
+                      : "translateY(8px) scale(0.985)",
+                    transition: "opacity 120ms ease, transform 120ms ease",
+                  }}
+                >
+                  {LOADING_WORDS[loadingWordIndex] + "..."}
+                </span>
+              </div>
             </div>
           </div>
         </McpUseProvider>
