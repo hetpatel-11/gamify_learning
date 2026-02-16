@@ -404,7 +404,7 @@ export default function RemotionPlayerWidget() {
               width="100%"
               height={260}
               colors={["#7300ff", "#eba8ff", "#00bfff", "#2b00ff", "#33cc99", "#3399cc", "#3333cc"]}
-              colorBack={dark ? "#000000" : "#ffffff"}
+              colorBack="#00000000"
               softness={1}
               intensity={1}
               noise={0.0}
@@ -423,7 +423,7 @@ export default function RemotionPlayerWidget() {
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 0,
-                color: "#22344a",
+                color: dark ? "#ffffff" : "#000000",
                 textAlign: "center",
                 padding: 20,
                 textShadow: "0 1px 2px rgba(255,255,255,0.35)",
@@ -436,6 +436,8 @@ export default function RemotionPlayerWidget() {
                     fontWeight: 500,
                     letterSpacing: 0.35,
                     lineHeight: 1.0,
+                    color: dark ? "#ffffff" : "#000000",
+                    textShadow: "none",
                     opacity: loadingWordVisible ? 0.95 : 0,
                     transform: loadingWordVisible
                       ? "translateY(0px) scale(1)"
