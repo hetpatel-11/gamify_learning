@@ -10,12 +10,10 @@ import { RULE_REMOTION_TEXT_ANIMATIONS } from "./rules/remotion-text-animations.
 import { RULE_REMOTION_TRIMMING } from "./rules/remotion-trimming.js";
 import {
   DEFAULT_META,
-  clearSessionProject,
   compileAndRespondWithProject,
   failProject,
   formatZodIssues,
   getSessionProject,
-  resolveProjectInput,
 } from "./utils.js";
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -74,38 +72,22 @@ server.tool(
 
 // --- Video tool ---
 
-const filesRecordSchema = z.record(z.string(), z.string());
-const requiredFilesSchema = filesRecordSchema.refine(
-  (value) => Object.keys(value).length > 0,
-  "files must contain at least one file"
-);
-
 const projectVideoSchema = z.object({
-  title: z.string().optional().default(DEFAULT_META.title).describe("Title shown in the video player"),
-  compositionId: z.string().optional().default(DEFAULT_META.compositionId).describe("Composition identifier (default: Main)"),
-  width: z.number().optional().default(DEFAULT_META.width).describe("Fallback composition width in pixels"),
-  height: z.number().optional().default(DEFAULT_META.height).describe("Fallback composition height in pixels"),
-  fps: z.number().optional().default(DEFAULT_META.fps).describe("Fallback frames per second"),
-  durationInFrames: z.number().optional().default(DEFAULT_META.durationInFrames).describe("Fallback total duration in frames"),
-  entryFile: z.string().optional().default("/src/Video.tsx").describe("Entry file path for the composition module"),
-  files: requiredFilesSchema.describe(
-    "Map of project files. Keys are virtual file paths, values are file contents. Supports relative imports between files and npm imports from installed packages."
-  ),
-  defaultProps: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .default({})
-    .describe("Default props passed to the composition"),
-  inputProps: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .default({})
-    .describe("Current input props passed to the composition"),
+  title: z.string().optional().default(DEFAULT_META.title),
+  compositionId: z.string().optional().default(DEFAULT_META.compositionId),
+  width: z.number().optional().default(DEFAULT_META.width),
+  height: z.number().optional().default(DEFAULT_META.height),
+  fps: z.number().optional().default(DEFAULT_META.fps),
+  durationInFrames: z.number().optional().default(DEFAULT_META.durationInFrames),
+  entryFile: z.string().optional().default("/src/Video.tsx"),
+  files: z.record(z.string(), z.string()),
+  defaultProps: z.record(z.string(), z.unknown()).optional().default({}),
+  inputProps: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 const createVideoSchema = z.object({
-  files: z.record(z.string(), z.string()).describe(
-    'REQUIRED. A {path: code} object mapping file paths to source code strings. Example: {"/src/Video.tsx": "import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill/>;}"}. NOT an array. DO NOT sent empty objects or arrays.'
+  files: z.string().describe(
+    'REQUIRED. A JSON string of {path: code} mapping file paths to source code. Example: \'{"\/src\/Video.tsx":"import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill\/>;}"}\'. For edits, only include changed files — unchanged files are kept from the previous call.'
   ),
   entryFile: z.string().optional().describe('Entry file path (default: "/src/Video.tsx"). Must match a key in files.'),
   title: z.string().optional().describe("Title shown in the video player"),
@@ -115,52 +97,13 @@ const createVideoSchema = z.object({
   height: z.number().optional().describe("Height in pixels (default: 1080)"),
 });
 
-const updateVideoSchema = z.object({
-  title: z.string().optional().describe("Title shown in the video player"),
-  compositionId: z.string().optional().describe("Composition identifier (default: Main)"),
-  width: z.number().optional().describe("Fallback composition width in pixels"),
-  height: z.number().optional().describe("Fallback composition height in pixels"),
-  fps: z.number().optional().describe("Fallback frames per second"),
-  durationInFrames: z.number().optional().describe("Fallback total duration in frames"),
-  entryFile: z.string().optional().describe("Entry file path for the composition module"),
-  updateMode: z
-    .enum(["merge", "replace"])
-    .optional()
-    .describe("How to apply incoming files against previous session state (default: merge)."),
-  usePreviousProject: z
-    .boolean()
-    .optional()
-    .describe("If true (default), reuse previous session project when fields/files are omitted."),
-  deleteFiles: z
-    .array(z.string())
-    .optional()
-    .describe("Optional list of file paths to delete from the previous session project."),
-  resetProject: z
-    .boolean()
-    .optional()
-    .describe("If true, clears previous session project before applying this request."),
-  files: z.record(z.string(), z.string())
-    .optional()
-    .describe(
-      'A plain JSON object mapping file paths to source code strings, e.g. {"/src/Video.tsx": "...code..."}. NOT an array. Only include changed files.'
-    ),
-  defaultProps: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe("Default props passed to the composition"),
-  inputProps: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe("Current input props passed to the composition"),
-});
-
 server.tool(
   {
     name: "create_video",
     description:
-      'Create a video project. Requires `files`: a {path: code} object. ' +
-      'Example: {"files":{"/src/Video.tsx":"import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill/>;}"}}. ' +
-      "Use update_video for follow-up edits.",
+      "Create or update a video. The `files` param is a JSON string (not an object) mapping file paths to source code. " +
+      'Pass it as: files: JSON.stringify({"/src/Video.tsx": "...your code..."}). ' +
+      "For edits, only include changed files — previous files are preserved automatically.",
     schema: createVideoSchema as any,
     widget: {
       name: "remotion-player",
@@ -169,26 +112,41 @@ server.tool(
     },
   },
   async (rawParams: z.infer<typeof createVideoSchema>, ctx) => {
-    const sessionId = ctx.session.sessionId;
-    clearSessionProject(sessionId);
+    const sessionId = ctx.session?.sessionId ?? "default";
 
-    if (!rawParams.files || Object.keys(rawParams.files).length === 0) {
-      return failProject(
-        'files is required. Pass a {path: code} object, e.g. {"files":{"/src/Video.tsx":"...code..."}}'
-      );
+    // Parse files from JSON string
+    let files: Record<string, string>;
+    try {
+      const parsed = JSON.parse(rawParams.files);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return failProject('files must be a JSON object like {"\/src\/Video.tsx": "...code..."}');
+      }
+      files = parsed as Record<string, string>;
+    } catch {
+      return failProject('files must be a valid JSON string, e.g. \'{"\/src\/Video.tsx":"...code..."}\'');
     }
 
+    if (Object.keys(files).length === 0) {
+      return failProject('files must contain at least one file entry.');
+    }
+
+    // Merge with previous session state (if any)
+    const previous = getSessionProject(sessionId);
+    const mergedFiles = previous
+      ? { ...previous.files, ...files }
+      : files;
+
     const project = {
-      title: rawParams.title,
-      compositionId: undefined,
-      width: rawParams.width,
-      height: rawParams.height,
-      fps: rawParams.fps,
-      durationInFrames: rawParams.durationInFrames,
-      entryFile: rawParams.entryFile,
-      files: rawParams.files,
-      defaultProps: undefined,
-      inputProps: undefined,
+      title: rawParams.title ?? previous?.title,
+      compositionId: previous?.compositionId,
+      width: rawParams.width ?? previous?.width,
+      height: rawParams.height ?? previous?.height,
+      fps: rawParams.fps ?? previous?.fps,
+      durationInFrames: rawParams.durationInFrames ?? previous?.durationInFrames,
+      entryFile: rawParams.entryFile ?? previous?.entryFile,
+      files: mergedFiles,
+      defaultProps: previous?.defaultProps,
+      inputProps: previous?.inputProps,
     };
 
     const parseResult = projectVideoSchema.safeParse(project);
@@ -196,55 +154,12 @@ server.tool(
       return failProject(`Invalid input: ${formatZodIssues(parseResult.error)}`);
     }
 
-    return compileAndRespondWithProject(parseResult.data, sessionId, [], "update_video");
-  }
-);
-
-server.tool(
-  {
-    name: "update_video",
-    description:
-      "Updates the current session video project. Pass changed files as a plain {path: code} object (NOT an array), " +
-      'e.g. {"files":{"/src/Video.tsx":"...new code..."}}. Merges with previous session state by default. ' +
-      "Do NOT wrap in extra keys like project/input/params.",
-    schema: updateVideoSchema as any,
-    widget: {
-      name: "remotion-player",
-      invoking: "Compiling project...",
-      invoked: "Video ready",
-    },
-  },
-  async (rawParams: z.infer<typeof updateVideoSchema>, ctx) => {
-    const sessionId = ctx.session.sessionId;
-    if (rawParams.resetProject) {
-      clearSessionProject(sessionId);
-    }
-    const previousProject = getSessionProject(sessionId);
-
-    const resolved = resolveProjectInput(rawParams as any, previousProject);
-    const resolvedFiles = resolved.project.files;
-    if (!resolvedFiles || Object.keys(resolvedFiles).length === 0) {
-      return failProject(
-        resolved.canReusePreviousProject
-          ? "No project files available. Provide `files` on the first call or remove `resetProject`."
-          : "No project files available. Provide `files` when usePreviousProject is false."
-     );
-    }
-
-    const parseResult = projectVideoSchema.safeParse(resolved.project);
-    if (!parseResult.success) {
-      return failProject(`Invalid input: ${formatZodIssues(parseResult.error)}`);
-    }
-
     const statusLines: string[] = [];
-    if (resolved.usedPreviousProject) {
-      statusLines.push(`Reused previous session project (mode: ${resolved.updateMode}).`);
-    }
-    if (resolved.deletedFiles > 0) {
-      statusLines.push(`Deleted ${resolved.deletedFiles} file(s) from prior state.`);
+    if (previous) {
+      statusLines.push("Merged with previous project.");
     }
 
-    return compileAndRespondWithProject(parseResult.data, sessionId, statusLines, "update_video");
+    return compileAndRespondWithProject(parseResult.data, sessionId, statusLines, "create_video");
   }
 );
 
