@@ -20,13 +20,15 @@ Works with ChatGPT, Claude, or any MCP-compatible client.
 
 ### ChatGPT + Remotion MCP
 
-https://github.com/user-attachments/assets/placeholder-openai-demo.mp4
+[Watch demo (OpenAI)](https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/openairemotion.mp4)
+
+https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/openairemotion.mp4
 
 ### Claude + Remotion MCP
 
-https://github.com/user-attachments/assets/placeholder-claude-demo.mp4
+[Watch demo (Claude)](https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/ClaudeRemotionDemo.mp4)
 
-> Upload the demo videos to a GitHub release or drag them into a PR/issue to get the real URLs, then replace the placeholders above.
+https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/ClaudeRemotionDemo.mp4
 
 ## How it works
 
