@@ -329,25 +329,6 @@ export const DEFAULT_META = {
 
 const ERROR_FALLBACK_BUNDLE = `var ${RUNTIME_BUNDLE_GLOBAL} = { default: function RemotionFallback() { return null; } };`;
 
-export type UpdateMode = "merge" | "replace";
-
-export type CreateVideoRequest = {
-  title?: string;
-  compositionId?: string;
-  width?: number;
-  height?: number;
-  fps?: number;
-  durationInFrames?: number;
-  entryFile?: string;
-  files?: Record<string, string>;
-  defaultProps?: Record<string, unknown>;
-  inputProps?: Record<string, unknown>;
-  usePreviousProject?: boolean;
-  updateMode?: UpdateMode;
-  deleteFiles?: string[];
-  resetProject?: boolean;
-};
-
 export type SessionProjectState = {
   title: string;
   compositionId: string;
@@ -442,92 +423,6 @@ function rememberSessionProject(sessionId: string, project: SessionProjectState)
   }
 }
 
-function deleteFilesFromMap(files: Record<string, string>, deleteFiles: string[]): number {
-  if (!deleteFiles.length) {
-    return 0;
-  }
-
-  let removed = 0;
-  for (const rawPath of deleteFiles) {
-    const candidates = new Set<string>([rawPath]);
-    try {
-      candidates.add(normalizeVirtualPath(rawPath));
-    } catch {
-      // Keep raw path candidate only.
-    }
-
-    for (const filePath of candidates) {
-      if (filePath in files) {
-        delete files[filePath];
-        removed += 1;
-      }
-    }
-  }
-
-  return removed;
-}
-
-export function resolveProjectInput(
-  input: CreateVideoRequest,
-  previousProject: SessionProjectState | null,
-): {
-  project: Record<string, unknown>;
-  usedPreviousProject: boolean;
-  updateMode: UpdateMode;
-  deletedFiles: number;
-  canReusePreviousProject: boolean;
-} {
-  const usePreviousProject = input.usePreviousProject ?? true;
-  const base = usePreviousProject && previousProject ? previousProject : null;
-  const updateMode = input.updateMode ?? "merge";
-
-  let files: Record<string, string> | undefined;
-  if (input.files) {
-    files =
-      base && updateMode === "merge"
-        ? {
-            ...cloneFileMap(base.files),
-            ...cloneFileMap(input.files),
-          }
-        : cloneFileMap(input.files);
-  } else if (base) {
-    files = cloneFileMap(base.files);
-  }
-
-  const deletedFiles = files
-    ? deleteFilesFromMap(files, input.deleteFiles ?? [])
-    : 0;
-
-  const project: Record<string, unknown> = {
-    title: input.title ?? base?.title ?? DEFAULT_META.title,
-    compositionId: input.compositionId ?? base?.compositionId ?? DEFAULT_META.compositionId,
-    width: input.width ?? base?.width ?? DEFAULT_META.width,
-    height: input.height ?? base?.height ?? DEFAULT_META.height,
-    fps: input.fps ?? base?.fps ?? DEFAULT_META.fps,
-    durationInFrames: input.durationInFrames ?? base?.durationInFrames ?? DEFAULT_META.durationInFrames,
-    entryFile: input.entryFile ?? base?.entryFile ?? "/src/Video.tsx",
-    files,
-    defaultProps: input.defaultProps
-      ? cloneRecord(input.defaultProps)
-      : base
-        ? cloneRecord(base.defaultProps)
-        : {},
-    inputProps: input.inputProps
-      ? cloneRecord(input.inputProps)
-      : base
-        ? cloneRecord(base.inputProps)
-        : {},
-  };
-
-  return {
-    project,
-    usedPreviousProject: Boolean(base),
-    updateMode,
-    deletedFiles,
-    canReusePreviousProject: usePreviousProject,
-  };
-}
-
 export function failProject(
   message: string,
   fallbackMeta?: Partial<VideoProjectData["meta"]>,
@@ -546,10 +441,6 @@ export function failProject(
     props: { videoProject: JSON.stringify(errorProject) },
     output: text(`Project error: ${message}`),
   });
-}
-
-export function clearSessionProject(sessionId: string): void {
-  sessionProjects.delete(sessionId);
 }
 
 export function getSessionProject(sessionId: string): SessionProjectState | null {
