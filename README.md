@@ -2,19 +2,21 @@
   <img src="assets/header.svg" alt="Remotion MCP" width="100%"/>
 </p>
 
-# Remotion MCP Server
+# Remotion MCP App
 
-An MCP server that lets AI models create and edit [Remotion](https://remotion.dev) videos through conversation. The model writes React code, the server compiles it instantly, and a live player renders the result inline.
+An [MCP App](https://mcp-use.com) for AI-powered video creation. It combines an MCP server with an interactive widget — the model writes React/[Remotion](https://remotion.dev) code, the server compiles it in real-time, and a live video player renders the result directly inside the chat.
+
+Unlike a standard MCP server that only returns text, an **MCP App** bundles a full UI widget alongside its tools. The Remotion Player widget renders inline in any compatible client (ChatGPT, Claude, or custom apps built with [mcp-use](https://mcp-use.com)), giving the model a visual canvas it can iterate on.
 
 ## Try it now
 
-Connect any MCP client to the hosted server:
+Connect any MCP-compatible client to the hosted instance:
 
 ```
 https://still-feather-l5mwy.run.mcp-use.com/mcp
 ```
 
-Works with ChatGPT, Claude, or any MCP-compatible client.
+Works with ChatGPT, Claude, or any client that supports [MCP Apps](https://mcp-use.com).
 
 ## Demos
 
@@ -28,27 +30,29 @@ https://github.com/mcp-use/remotion-mcp-app/raw/main/assets/demo-claude.mp4
 
 ## How it works
 
+This is an **MCP App** — an MCP server paired with a UI widget. The two pieces work together:
+
+1. **MCP Server** -- exposes `create_video` tool + rule tools for teaching Remotion patterns
+2. **Widget** -- a Remotion Player that renders inline in the chat, receives compiled bundles from the server
+
+The flow:
+
 1. The model calls `create_video` with React/Remotion source files
 2. The server compiles the project with esbuild (sub-second)
-3. A Remotion Player widget renders the video inline in the chat
-4. For edits, the model calls `create_video` again with only changed files -- previous files are preserved automatically
-
-The server exposes **rule tools** that teach the model Remotion patterns on demand (animations, timing, transitions, sequencing). The model calls these before writing code to learn the API.
-
-## Architecture
+3. The compiled bundle is sent back as `structuredContent`, and the widget renders it as a playable video
+4. For edits, the model calls `create_video` again with only changed files -- the widget updates in-place with a loading overlay
 
 ```
-Model                    MCP Server                  Widget
-  |                          |                          |
-  |-- create_video({files}) ->|                          |
-  |                          |-- esbuild compile ------->|
-  |                          |<- bundle + meta ----------|
-  |<- structuredContent -----|                          |
-  |                          |          Remotion Player ->| (renders inline)
-  |                          |                          |
-  |-- create_video({edits}) ->|                          |
-  |                          |-- merge + recompile ----->|
-  |                          |          Player updates -->| (in-place)
+Model                    MCP App (Server + Widget)
+  |                          |
+  |-- create_video({files}) ->|
+  |                          |-- esbuild compile
+  |<- structuredContent -----|
+  |                          |-- Widget renders video inline
+  |                          |
+  |-- create_video({edits}) ->|
+  |                          |-- merge + recompile
+  |                          |-- Widget updates in-place
 ```
 
 ### Single tool design
@@ -69,9 +73,9 @@ The server includes teaching tools derived from the [remotion-best-practices](ht
 | `rule_remotion_text_animations` | Typewriter effect, word highlighting |
 | `rule_remotion_trimming` | Trimming with negative `Sequence` from |
 
-### Widget
+### Widget (the "App" part)
 
-The Remotion Player widget runs inside the chat interface. It features:
+The Remotion Player widget is what makes this an MCP App rather than a plain MCP server. It runs inside the chat interface and features:
 
 - Live video playback with controls
 - Animated loading state with shader gradient while the model writes code
