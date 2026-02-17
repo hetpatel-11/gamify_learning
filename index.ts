@@ -74,9 +74,11 @@ server.tool(
 
 // --- Video tool ---
 
-const filesSchema = z
-  .record(z.string(), z.string())
-  .refine((value) => Object.keys(value).length > 0, "files must contain at least one file");
+const filesRecordSchema = z.record(z.string(), z.string());
+const requiredFilesSchema = filesRecordSchema.refine(
+  (value) => Object.keys(value).length > 0,
+  "files must contain at least one file"
+);
 
 const projectVideoSchema = z.object({
   title: z.string().optional().default(DEFAULT_META.title).describe("Title shown in the video player"),
@@ -86,7 +88,7 @@ const projectVideoSchema = z.object({
   fps: z.number().optional().default(DEFAULT_META.fps).describe("Fallback frames per second"),
   durationInFrames: z.number().optional().default(DEFAULT_META.durationInFrames).describe("Fallback total duration in frames"),
   entryFile: z.string().optional().default("/src/Video.tsx").describe("Entry file path for the composition module"),
-  files: filesSchema.describe(
+  files: requiredFilesSchema.describe(
     "Map of project files. Keys are virtual file paths, values are file contents. Supports relative imports between files and npm imports from installed packages."
   ),
   defaultProps: z
@@ -108,14 +110,28 @@ const createVideoSchema = z.object({
   height: z.number().optional().describe("Fallback composition height in pixels"),
   fps: z.number().optional().describe("Fallback frames per second"),
   durationInFrames: z.number().optional().describe("Fallback total duration in frames"),
-  entryFile: z.string().describe("Entry file path for the composition module"),
-  files: filesSchema.describe(
-    "Map of project files. Keys are virtual file paths, values are file contents. Supports relative imports between files and npm imports from installed packages."
-  ),
+  entryFile: z.string().optional().describe("Entry file path for the composition module"),
+  updateMode: z
+    .enum(["merge", "replace"])
+    .optional()
+    .describe("How to apply incoming files against previous session state (default: merge)."),
+  usePreviousProject: z
+    .boolean()
+    .optional()
+    .describe("If true (default), reuse previous session project when fields/files are omitted."),
+  deleteFiles: z
+    .array(z.string())
+    .optional()
+    .describe("Optional list of file paths to delete from the previous session project."),
   resetProject: z
     .boolean()
     .optional()
     .describe("If true, clears previous session project before applying this request."),
+  files: filesRecordSchema
+    .optional()
+    .describe(
+      "Map of project files. Optional when reusing a prior session project. Keys are virtual file paths, values are file contents."
+    ),
   defaultProps: z
     .record(z.string(), z.unknown())
     .optional()
@@ -150,7 +166,7 @@ const updateVideoSchema = z.object({
     .boolean()
     .optional()
     .describe("If true, clears previous session project before applying this request."),
-  files: filesSchema
+  files: filesRecordSchema
     .optional()
     .describe(
       "Map of project files. Keys are virtual file paths, values are file contents. Supports relative imports between files and npm imports from installed packages."
@@ -170,8 +186,8 @@ server.tool(
   {
     name: "create_video",
     description:
-      "Create a Remotion video project from explicit files. " +
-      "Requires `files` + `entryFile` and stores the project in session state for later edits via update_video.",
+      "Create or update the current session video project. " +
+      "Supports full projects and partial edits; omitted fields can be reused from prior session state.",
     schema: createVideoSchema,
     widget: {
       name: "remotion-player",
@@ -184,14 +200,32 @@ server.tool(
     if (rawParams.resetProject) {
       clearSessionProject(sessionId);
     }
+    const previousProject = getSessionProject(sessionId);
 
-    const parseResult = projectVideoSchema.safeParse(rawParams);
+    const resolved = resolveProjectInput(rawParams, previousProject);
+    const resolvedFiles = resolved.project.files;
+    if (!resolvedFiles || Object.keys(resolvedFiles).length === 0) {
+      return failProject(
+        resolved.canReusePreviousProject
+          ? "No project files available. Provide `files` on the first call or remove `resetProject`."
+          : "No project files available. Provide `files` when usePreviousProject is false."
+      );
+    }
+
+    const parseResult = projectVideoSchema.safeParse(resolved.project);
     if (!parseResult.success) {
       return failProject(`Invalid input: ${formatZodIssues(parseResult.error)}`);
     }
-    const parsedInput = parseResult.data;
 
-    return compileAndRespondWithProject(parsedInput, sessionId, [], "update_video");
+    const statusLines: string[] = [];
+    if (resolved.usedPreviousProject) {
+      statusLines.push(`Reused previous session project (mode: ${resolved.updateMode}).`);
+    }
+    if (resolved.deletedFiles > 0) {
+      statusLines.push(`Deleted ${resolved.deletedFiles} file(s) from prior state.`);
+    }
+
+    return compileAndRespondWithProject(parseResult.data, sessionId, statusLines, "update_video");
   }
 );
 

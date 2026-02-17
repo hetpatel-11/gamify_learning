@@ -173,6 +173,54 @@ function readMetadataOverrides(overrides: Record<string, unknown>, fallback: Vid
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function toSafeFileSlug(title: string): string {
+  const normalized = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const trimmed = normalized.replace(/^-+|-+$/g, "");
+  return trimmed || "video-preview";
+}
+
+function getSupportedRecorderMimeType(): string {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+
+  const candidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+function getCapturedMediaStream(element: Element): MediaStream | null {
+  const mediaElement = element as HTMLMediaElement & {
+    captureStream?: () => MediaStream;
+    mozCaptureStream?: () => MediaStream;
+  };
+
+  if (typeof mediaElement.captureStream === "function") {
+    return mediaElement.captureStream();
+  }
+  if (typeof mediaElement.mozCaptureStream === "function") {
+    return mediaElement.mozCaptureStream();
+  }
+
+  return null;
+}
+
 const LOADING_WORDS = [
   "Storyboarding",
   "Keyframing",
@@ -241,12 +289,15 @@ export default function RemotionPlayerWidget() {
 
   const data = finalData || ((isPending || isStreaming) ? prevRef.current : null);
   const hasData = !!data;
-  const isLoading = !hasData && (isPending || isStreaming);
+  const isBusy = isPending || isStreaming;
+  const isLoading = !hasData && isBusy;
   const [loadingWordIndex, setLoadingWordIndex] = useState(0);
   const [loadingWordVisible, setLoadingWordVisible] = useState(true);
+  const [isRecordingDownload, setIsRecordingDownload] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading) {
+    if (!isBusy) {
       setLoadingWordVisible(true);
       return;
     }
@@ -269,7 +320,11 @@ export default function RemotionPlayerWidget() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [isLoading]);
+  }, [isBusy]);
+
+  useEffect(() => {
+    setDownloadError(null);
+  }, [data?.bundle]);
 
   const mergedProps = useMemo(() => {
     if (!data) {
@@ -389,6 +444,92 @@ export default function RemotionPlayerWidget() {
       "No video project data was returned. Check the tool output and call create_video or update_video again.";
 
     if (isLoading) {
+      if (isFullscreen) {
+        return (
+          <McpUseProvider autoSize>
+            <div
+              style={{
+                position: "relative",
+                height: "100vh",
+                overflow: "hidden",
+                background: "#000",
+                fontFamily: "system-ui, sans-serif",
+              }}
+            >
+              <GrainGradient
+                width="100%"
+                height="100%"
+                colors={["#7300ff", "#eba8ff", "#00bfff", "#2b00ff", "#33cc99", "#3399cc", "#3333cc"]}
+                colorBack="#00000000"
+                softness={1}
+                intensity={1}
+                noise={0.0}
+                shape="corners"
+                speed={2}
+                scale={1.8}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+              />
+              <div style={{ position: "absolute", top: 10, right: 10, zIndex: 2 }}>
+                <button
+                  onClick={toggleFullscreen}
+                  disabled={!isAvailable}
+                  title="Exit fullscreen"
+                  style={{
+                    background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                    border: "none",
+                    cursor: isAvailable ? "pointer" : "not-allowed",
+                    padding: "7px 10px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: dark ? "#f4f4f4" : "#1b1b1b",
+                    borderRadius: 6,
+                    opacity: isAvailable ? 0.88 : 0.45,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: 0.2,
+                    lineHeight: 1,
+                  }}
+                >
+                  Exit fullscreen
+                </button>
+              </div>
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: dark ? "#ffffff" : "#000000",
+                  textAlign: "center",
+                  padding: 24,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 500,
+                    letterSpacing: 0.35,
+                    lineHeight: 1,
+                    color: dark ? "#ffffff" : "#000000",
+                    textShadow: "none",
+                    opacity: loadingWordVisible ? 0.95 : 0,
+                    transform: loadingWordVisible
+                      ? "translateY(0px) scale(1)"
+                      : "translateY(8px) scale(0.985)",
+                    transition: "opacity 120ms ease, transform 120ms ease",
+                  }}
+                >
+                  {LOADING_WORDS[loadingWordIndex] + "..."}
+                </span>
+              </div>
+            </div>
+          </McpUseProvider>
+        );
+      }
+
       return (
         <McpUseProvider autoSize>
           <div
@@ -478,6 +619,116 @@ export default function RemotionPlayerWidget() {
   }
 
   const meta = resolvedMeta ?? data!.meta;
+  const downloadDisabled = !compiledProject || !!compileError || isRecordingDownload;
+
+  const downloadPreview = useCallback(async () => {
+    if (!compiledProject || !ref.current) {
+      setDownloadError("Preview is not ready yet.");
+      return;
+    }
+
+    setDownloadError(null);
+    setIsRecordingDownload(true);
+
+    let stream: MediaStream | null = null;
+    let recorder: MediaRecorder | null = null;
+
+    try {
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error("Recording is not supported in this environment.");
+      }
+
+      const player = ref.current;
+      const containerNode = player.getContainerNode();
+      const canvas = containerNode?.querySelector("canvas");
+      if (!(canvas instanceof HTMLCanvasElement)) {
+        throw new Error("Could not find preview canvas to record.");
+      }
+      if (typeof canvas.captureStream !== "function") {
+        throw new Error("Canvas recording is not supported in this browser.");
+      }
+
+      const mimeType = getSupportedRecorderMimeType();
+      stream = canvas.captureStream(meta.fps);
+      const mediaElements = Array.from(containerNode.querySelectorAll("video, audio"));
+      for (const mediaElement of mediaElements) {
+        const mediaStream = getCapturedMediaStream(mediaElement);
+        if (!mediaStream) {
+          continue;
+        }
+        for (const audioTrack of mediaStream.getAudioTracks()) {
+          stream.addTrack(audioTrack);
+        }
+      }
+
+      const chunks: BlobPart[] = [];
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      const recordingFinished = new Promise<void>((resolve, reject) => {
+        recorder!.ondataavailable = (event: BlobEvent) => {
+          if (event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+        recorder!.onerror = () => {
+          reject(recorder!.error ?? new Error("Recording failed."));
+        };
+        recorder!.onstop = () => resolve();
+      });
+
+      player.pause();
+      player.seekTo(0);
+      await sleep(60);
+
+      recorder.start(200);
+      player.play();
+
+      const durationMs = Math.max(
+        300,
+        Math.ceil((meta.durationInFrames / meta.fps) * 1000)
+      );
+      await sleep(durationMs + 140);
+
+      player.pause();
+      if (recorder.state !== "inactive") {
+        recorder.stop();
+      }
+      await recordingFinished;
+
+      const blob = new Blob(chunks, {
+        type: mimeType || "video/webm",
+      });
+      const fileName = `${toSafeFileSlug(meta.title)}.webm`;
+      const objectUrl = URL.createObjectURL(blob);
+
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      anchor.rel = "noopener";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+      }, 60_000);
+    } catch (error) {
+      setDownloadError(
+        (error as Error)?.message || "Unable to export preview video."
+      );
+    } finally {
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
+      if (stream) {
+        stream.getTracks().forEach((track) => {
+          track.stop();
+        });
+      }
+      setIsRecordingDownload(false);
+    }
+  }, [compiledProject, meta.durationInFrames, meta.fps, meta.title]);
 
   const fsIcon = isFullscreen ? (
     <svg
@@ -524,25 +775,54 @@ export default function RemotionPlayerWidget() {
       }}
     >
       <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
-      <button
-        onClick={toggleFullscreen}
-        disabled={!isAvailable}
-        title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: isAvailable ? "pointer" : "not-allowed",
-          padding: 6,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: fg2,
-          borderRadius: 4,
-          opacity: isAvailable ? 0.7 : 0.35,
-        }}
-      >
-        {fsIcon}
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <button
+          onClick={downloadPreview}
+          disabled={downloadDisabled}
+          title={
+            compileError
+              ? "Fix compilation errors before exporting."
+              : "Download preview as WebM"
+          }
+          style={{
+            background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+            border: "none",
+            cursor: downloadDisabled ? "not-allowed" : "pointer",
+            padding: "6px 9px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: fg,
+            borderRadius: 6,
+            opacity: downloadDisabled ? 0.45 : 0.9,
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.2,
+            lineHeight: 1,
+          }}
+        >
+          {isRecordingDownload ? "Recording..." : "Download .webm"}
+        </button>
+        <button
+          onClick={toggleFullscreen}
+          disabled={!isAvailable}
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: isAvailable ? "pointer" : "not-allowed",
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: fg2,
+            borderRadius: 4,
+            opacity: isAvailable ? 0.7 : 0.35,
+          }}
+        >
+          {fsIcon}
+        </button>
+      </div>
     </div>
   );
 
@@ -598,22 +878,54 @@ export default function RemotionPlayerWidget() {
               margin: "0 auto",
             }}
           />
-          {(isPending || isStreaming) ? (
+          {isBusy && !isFullscreen ? (
+            <div
+              style={{
+                position: "absolute",
+                left: 10,
+                right: 10,
+                bottom: 10,
+                display: "flex",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  background: dark ? "rgba(0,0,0,0.68)" : "rgba(255,255,255,0.9)",
+                  borderRadius: 999,
+                  padding: "5px 12px",
+                  color: dark ? "#f4f4f4" : "#1b1b1b",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.22,
+                  opacity: loadingWordVisible ? 0.95 : 0,
+                  transform: loadingWordVisible
+                    ? "translateY(0px) scale(1)"
+                    : "translateY(6px) scale(0.985)",
+                  transition: "opacity 120ms ease, transform 120ms ease",
+                }}
+              >
+                {LOADING_WORDS[loadingWordIndex] + "..."}
+              </div>
+            </div>
+          ) : null}
+          {isRecordingDownload ? (
             <div
               style={{
                 position: "absolute",
                 top: 8,
                 right: 8,
-                background: dark ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.88)",
+                background: dark ? "rgba(0,0,0,0.75)" : "rgba(255,255,255,0.92)",
                 borderRadius: 999,
                 padding: "4px 10px",
-                color: dark ? "#ddd" : "#333",
+                color: dark ? "#ddd" : "#222",
                 fontSize: 11,
                 fontWeight: 600,
                 letterSpacing: 0.2,
               }}
             >
-              Updating preview...
+              Recording download...
             </div>
           ) : null}
         </div>
@@ -634,6 +946,47 @@ export default function RemotionPlayerWidget() {
           }}
         >
           {header}
+          {downloadError ? (
+            <div
+              style={{
+                padding: "0 14px 8px",
+                color: dark ? "#ff8686" : "#a32b2b",
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+            >
+              {downloadError}
+            </div>
+          ) : null}
+          {isBusy ? (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                padding: "0 14px 8px",
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                  borderRadius: 999,
+                  padding: "5px 12px",
+                  color: dark ? "#f4f4f4" : "#1b1b1b",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.22,
+                  opacity: loadingWordVisible ? 0.95 : 0,
+                  transform: loadingWordVisible
+                    ? "translateY(0px) scale(1)"
+                    : "translateY(6px) scale(0.985)",
+                  transition: "opacity 120ms ease, transform 120ms ease",
+                }}
+              >
+                {LOADING_WORDS[loadingWordIndex] + "..."}
+              </div>
+            </div>
+          ) : null}
           <div
             style={{
               flex: 1,
@@ -659,6 +1012,18 @@ export default function RemotionPlayerWidget() {
         style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}
       >
         {header}
+        {downloadError ? (
+          <div
+            style={{
+              padding: "0 14px 8px",
+              color: dark ? "#ff8686" : "#a32b2b",
+              fontSize: 11,
+              fontWeight: 500,
+            }}
+          >
+            {downloadError}
+          </div>
+        ) : null}
         {playerEl}
       </div>
     </McpUseProvider>
