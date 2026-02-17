@@ -20,11 +20,11 @@ Works with ChatGPT, Claude, or any MCP-compatible client.
 
 ### ChatGPT + Remotion MCP
 
-<video src="https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/openairemotion.mp4" controls width="100%"></video>
+https://github.com/mcp-use/remotion-mcp-app/raw/main/assets/demo-openai.mp4
 
 ### Claude + Remotion MCP
 
-<video src="https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/ClaudeRemotionDemo.mp4" controls width="100%"></video>
+https://github.com/mcp-use/remotion-mcp-app/raw/main/assets/demo-claude.mp4
 
 ## How it works
 
