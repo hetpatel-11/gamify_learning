@@ -558,7 +558,6 @@ function PlayerView({
 
 function RemotionPlayerWidgetInner() {
   const {
-    props,
     isPending,
     theme,
     displayMode,
@@ -575,10 +574,14 @@ function RemotionPlayerWidgetInner() {
   const isBusy = isPending || isStreaming;
 
   // --- Parse project data ---
+  const { output } = useWidget<z.infer<typeof propSchema>>() as any;
+
+  // The compiled video project comes from structuredContent (tool output),
+  // not from props (tool input). Props contains what the model sent (files, title, etc.)
   const rawVideoProject = useMemo(() => {
-    const value = (props as Record<string, unknown> | null)?.videoProject;
+    const value = (output as Record<string, unknown> | null)?.videoProject;
     return typeof value === "string" ? value : null;
-  }, [props]);
+  }, [output]);
 
   const finalData = useMemo(() => {
     if (isPending || !rawVideoProject) return null;
