@@ -104,43 +104,16 @@ const projectVideoSchema = z.object({
 });
 
 const createVideoSchema = z.object({
+  files: z.record(z.string(), z.string()).describe(
+    'REQUIRED. A {path: code} object mapping file paths to source code strings. Example: {"/src/Video.tsx": "import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill/>;}"}. NOT an array. DO NOT sent empty objects or arrays.'
+  ),
+  entryFile: z.string().optional().describe('Entry file path (default: "/src/Video.tsx"). Must match a key in files.'),
   title: z.string().optional().describe("Title shown in the video player"),
-  compositionId: z.string().optional().describe("Composition identifier (default: Main)"),
-  width: z.number().optional().describe("Fallback composition width in pixels"),
-  height: z.number().optional().describe("Fallback composition height in pixels"),
-  fps: z.number().optional().describe("Fallback frames per second"),
-  durationInFrames: z.number().optional().describe("Fallback total duration in frames"),
-  entryFile: z.string().optional().describe('Entry file path, e.g. "/src/Video.tsx". Must match a key in the files object.'),
-  updateMode: z
-    .enum(["merge", "replace"])
-    .optional()
-    .describe("How to apply incoming files against previous session state (default: merge)."),
-  usePreviousProject: z
-    .boolean()
-    .optional()
-    .describe("If true (default), reuse previous session project when fields/files are omitted."),
-  deleteFiles: z
-    .array(z.string())
-    .optional()
-    .describe("Optional list of file paths to delete from the previous session project."),
-  resetProject: z
-    .boolean()
-    .optional()
-    .describe("If true, clears previous session project before applying this request."),
-  files: filesRecordSchema
-    .optional()
-    .describe(
-      'A plain JSON object mapping file paths to source code strings. Example: {"/src/Video.tsx": "import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill/>;}"}. NOT an array. Keys are paths like "/src/Video.tsx", values are full source code strings.'
-    ),
-  defaultProps: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe("Default props passed to the composition"),
-  inputProps: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe("Current input props passed to the composition"),
-}).strict();
+  durationInFrames: z.number().optional().describe("Total duration in frames (default: 150)"),
+  fps: z.number().optional().describe("Frames per second (default: 30)"),
+  width: z.number().optional().describe("Width in pixels (default: 1920)"),
+  height: z.number().optional().describe("Height in pixels (default: 1080)"),
+});
 
 const updateVideoSchema = z.object({
   title: z.string().optional().describe("Title shown in the video player"),
@@ -166,7 +139,7 @@ const updateVideoSchema = z.object({
     .boolean()
     .optional()
     .describe("If true, clears previous session project before applying this request."),
-  files: filesRecordSchema
+  files: z.record(z.string(), z.string())
     .optional()
     .describe(
       'A plain JSON object mapping file paths to source code strings, e.g. {"/src/Video.tsx": "...code..."}. NOT an array. Only include changed files.'
@@ -179,53 +152,51 @@ const updateVideoSchema = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .describe("Current input props passed to the composition"),
-}).strict();
+});
 
 server.tool(
   {
     name: "create_video",
     description:
-      "Create a new video project. Pass a flat object with files (a plain {path: code} object, NOT an array) and entryFile (a string path). " +
-      'Example: {"entryFile":"/src/Video.tsx","files":{"/src/Video.tsx":"import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill/>;}"}}. ' +
-      "Do NOT wrap in extra keys like project/input/params. Use update_video for follow-up edits.",
-    schema: createVideoSchema,
+      'Create a video project. Requires `files`: a {path: code} object. ' +
+      'Example: {"files":{"/src/Video.tsx":"import {AbsoluteFill} from \\"remotion\\";\\nexport default function Video(){return <AbsoluteFill/>;}"}}. ' +
+      "Use update_video for follow-up edits.",
+    schema: createVideoSchema as any,
     widget: {
       name: "remotion-player",
       invoking: "Compiling project...",
       invoked: "Video ready",
     },
   },
-  async (rawParams, ctx) => {
+  async (rawParams: z.infer<typeof createVideoSchema>, ctx) => {
     const sessionId = ctx.session.sessionId;
-    if (rawParams.resetProject) {
-      clearSessionProject(sessionId);
-    }
-    const previousProject = getSessionProject(sessionId);
+    clearSessionProject(sessionId);
 
-    const resolved = resolveProjectInput(rawParams as any, previousProject);
-    const resolvedFiles = resolved.project.files;
-    if (!resolvedFiles || Object.keys(resolvedFiles).length === 0) {
+    if (!rawParams.files || Object.keys(rawParams.files).length === 0) {
       return failProject(
-        resolved.canReusePreviousProject
-          ? "No project files available. Provide `files` on the first call or remove `resetProject`."
-          : "No project files available. Provide `files` when usePreviousProject is false."
+        'files is required. Pass a {path: code} object, e.g. {"files":{"/src/Video.tsx":"...code..."}}'
       );
     }
 
-    const parseResult = projectVideoSchema.safeParse(resolved.project);
+    const project = {
+      title: rawParams.title,
+      compositionId: undefined,
+      width: rawParams.width,
+      height: rawParams.height,
+      fps: rawParams.fps,
+      durationInFrames: rawParams.durationInFrames,
+      entryFile: rawParams.entryFile,
+      files: rawParams.files,
+      defaultProps: undefined,
+      inputProps: undefined,
+    };
+
+    const parseResult = projectVideoSchema.safeParse(project);
     if (!parseResult.success) {
       return failProject(`Invalid input: ${formatZodIssues(parseResult.error)}`);
     }
 
-    const statusLines: string[] = [];
-    if (resolved.usedPreviousProject) {
-      statusLines.push(`Reused previous session project (mode: ${resolved.updateMode}).`);
-    }
-    if (resolved.deletedFiles > 0) {
-      statusLines.push(`Deleted ${resolved.deletedFiles} file(s) from prior state.`);
-    }
-
-    return compileAndRespondWithProject(parseResult.data, sessionId, statusLines, "update_video");
+    return compileAndRespondWithProject(parseResult.data, sessionId, [], "update_video");
   }
 );
 
@@ -236,14 +207,14 @@ server.tool(
       "Update the current session video project. Pass changed files as a plain {path: code} object (NOT an array), " +
       'e.g. {"files":{"/src/Video.tsx":"...new code..."}}. Merges with previous session state by default. ' +
       "Do NOT wrap in extra keys like project/input/params.",
-    schema: updateVideoSchema,
+    schema: updateVideoSchema as any,
     widget: {
       name: "remotion-player",
       invoking: "Compiling project...",
       invoked: "Video ready",
     },
   },
-  async (rawParams, ctx) => {
+  async (rawParams: z.infer<typeof updateVideoSchema>, ctx) => {
     const sessionId = ctx.session.sessionId;
     if (rawParams.resetProject) {
       clearSessionProject(sessionId);

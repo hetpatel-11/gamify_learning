@@ -1,35 +1,27 @@
-export const RULE_REACT_CODE = `# Project Code Reference (create_video)
+export const RULE_REACT_CODE = `# Project Code Reference
 
-The video tools accept a project:
-- files: map of file paths to source code
-- entryFile: the file exporting the composition
-- defaultProps + inputProps: props passed into the composition
-- session-aware updates: previous project is reused by default in the same session
+## create_video — Start a new project
 
-## create_video Tool Call Format (initial project)
+Only one field is required: **files**.
 
 \`\`\`json
 {
-  "title": "My Video",
-  "durationInFrames": 150,
-  "fps": 30,
-  "width": 1920,
-  "height": 1080,
-  "entryFile": "/src/Video.tsx",
   "files": {
     "/src/Video.tsx": "import {AbsoluteFill, useCurrentFrame, interpolate} from \\"remotion\\";\\n\\nexport default function Video() {\\n  const frame = useCurrentFrame();\\n  const opacity = interpolate(frame, [0, 30], [0, 1], {extrapolateRight: \\"clamp\\"});\\n  return (\\n    <AbsoluteFill style={{backgroundColor: \\"#0a0a0a\\", justifyContent: \\"center\\", alignItems: \\"center\\"}}>\\n      <div style={{color: \\"white\\", fontSize: 72, opacity}}>Hello World</div>\\n    </AbsoluteFill>\\n  );\\n}"
   },
-  "defaultProps": {},
-  "inputProps": {}
+  "durationInFrames": 150,
+  "fps": 30
 }
 \`\`\`
 
-For the first call, include **files** and **entryFile**.
-For follow-up edits in the same session, use **update_video** and send only changed files and/or updated props.
+Optional fields: entryFile (default: "/src/Video.tsx"), title, durationInFrames, fps, width, height.
 
-Strict contract only:
-- Unknown/extra fields are rejected
-- Do not send compatibility wrappers like \`input\`, \`project\`, \`arguments\`, \`params\`, \`payload\`
+## update_video — Edit the current project
+
+For follow-up edits, use **update_video** and send only changed files. Previous session state is reused automatically.
+
+Strict contract:
+- Do not send wrapper keys like \`input\`, \`project\`, \`arguments\`, \`params\`, \`payload\`
 - Do not send legacy aliases like \`code\`, \`jsx\`, \`tsx\`, \`source\`, \`fileMap\`, \`projectFiles\`
 
 ## Supported Imports
@@ -49,9 +41,7 @@ The entry file must export a default React component:
 // /src/Video.tsx
 import {AbsoluteFill, useCurrentFrame, interpolate} from "remotion";
 
-type Props = {title: string};
-
-export default function Video(props: Props) {
+export default function Video() {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [0, 20], [0, 1], {
     extrapolateLeft: "clamp",
@@ -60,7 +50,7 @@ export default function Video(props: Props) {
 
   return (
     <AbsoluteFill style={{backgroundColor: "#0a0a0a", justifyContent: "center", alignItems: "center"}}>
-      <div style={{color: "white", fontSize: 72, opacity}}>{props.title}</div>
+      <div style={{color: "white", fontSize: 72, opacity}}>Hello World</div>
     </AbsoluteFill>
   );
 }
@@ -68,8 +58,7 @@ export default function Video(props: Props) {
 
 ## Optional calculateMetadata
 
-You may export calculateMetadata() from the entry file.
-Use it to derive width/height/fps/duration from props.
+You may export calculateMetadata() from the entry file to derive width/height/fps/duration from props.
 
 \`\`\`tsx
 export const calculateMetadata = ({props}) => {
@@ -80,9 +69,6 @@ export const calculateMetadata = ({props}) => {
   };
 };
 \`\`\`
-
-The player merges props as:
-mergedProps = { ...defaultProps, ...inputProps }
 
 ## Multi-file Example
 
@@ -121,15 +107,6 @@ Every Sequence must have durationInFrames to avoid scene overlap:
 3. Forgetting durationInFrames on Sequence
 4. Using CSS transitions instead of frame-driven Remotion logic
 5. Returning invalid metadata values (non-positive width/height/fps/duration)
-6. Using updateMode="replace" for small edits (it replaces the whole project)
-
-## Update Controls
-
-- Use these with **update_video**:
-- \`updateMode\`: "merge" (default) or "replace"
-- \`deleteFiles\`: file paths to remove from previous session state
-- \`resetProject\`: true to clear previous session state before this call
-- \`usePreviousProject\`: false to disable previous-project reuse
 
 ## Default Quality Bar
 
