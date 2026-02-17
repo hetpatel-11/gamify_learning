@@ -16,9 +16,7 @@ Only one field is required: **files**.
 
 Optional fields: entryFile (default: "/src/Video.tsx"), title, durationInFrames, fps, width, height.
 
-## update_video — Edit the current project
-
-For follow-up edits, use **update_video** and send only changed files. Previous session state is reused automatically.
+For follow-up edits, call **create_video** again with only the changed files — previous files are preserved automatically.
 
 Strict contract:
 - Do not send wrapper keys like \`input\`, \`project\`, \`arguments\`, \`params\`, \`payload\`

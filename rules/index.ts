@@ -18,9 +18,8 @@ Call these tools to learn specific Remotion topics:
 
 1. Call **rule_react_code** for the project format reference and exact tool call shape
 2. Build your project as a **files** map: { "/src/Video.tsx": "source code..." }
-3. Set **entryFile** to the key in files that exports the default component (e.g. "/src/Video.tsx")
-4. First call: use **create_video** with files + entryFile
-5. Follow-up edits: use **update_video** with changed files/props/metadata
+3. Call **create_video** with files (and optionally entryFile, title, fps, etc.)
+4. For edits, call **create_video** again with only the changed files — previous files are preserved automatically
 
 ## Important Rules
 
@@ -31,7 +30,6 @@ Call these tools to learn specific Remotion topics:
 5. Every Sequence must include durationInFrames to avoid scene stacking
 6. Do not use CSS animations/transitions for timing; use frame-driven Remotion APIs
 7. Default quality bar unless user asks otherwise: multi-scene structure, animated transitions, clear typography hierarchy, and purposeful motion (not static slides)
-8. Session-aware updates are in **update_video**: default mode is merge. Use updateMode="replace" for full replacement, deleteFiles to remove files, resetProject=true to clear session state
-9. **create_video** always requires files; **update_video** can omit files only if session state already exists
-10. For edit requests, patch the existing project and keep unrelated scenes/styles unless user asks for a full redesign
+8. For edit requests, only send changed files — unchanged files are kept from the previous call
+9. For edit requests, patch the existing project and keep unrelated scenes/styles unless user asks for a full redesign
 `;

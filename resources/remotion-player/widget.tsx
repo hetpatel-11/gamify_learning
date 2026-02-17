@@ -412,25 +412,60 @@ function HeaderBar({
 // Updating overlay
 // ---------------------------------------------------------------------------
 
-function UpdatingOverlay({ word, visible, dark }: { word: string; visible: boolean; dark: boolean }) {
+function EditingOverlay({ word, visible }: { word: string; visible: boolean }) {
   return (
-    <div style={{ position: "absolute", left: 10, right: 10, bottom: 10, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 10,
+        pointerEvents: "none",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        borderRadius: "inherit",
+      }}
+    >
+      {/* Blur layer over the video */}
       <div
         style={{
-          background: dark ? "rgba(0,0,0,0.68)" : "rgba(255,255,255,0.9)",
-          borderRadius: 999,
-          padding: "5px 12px",
-          color: dark ? "#f4f4f4" : "#1b1b1b",
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: 0.22,
+          position: "absolute",
+          inset: 0,
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          transition: "opacity 300ms ease",
+        }}
+      />
+      {/* Shader gradient on top */}
+      <ShaderBackground
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          opacity: 0.55,
+          mixBlendMode: "screen",
+        }}
+      />
+      {/* Loading word */}
+      <span
+        style={{
+          position: "relative",
+          zIndex: 1,
+          fontSize: 16,
+          fontWeight: 500,
+          letterSpacing: 0.35,
+          lineHeight: 1,
+          color: "#ffffff",
+          textShadow: "0 1px 8px rgba(0,0,0,0.5)",
           opacity: visible ? 0.95 : 0,
-          transform: visible ? "translateY(0px) scale(1)" : "translateY(6px) scale(0.985)",
+          transform: visible ? "translateY(0px) scale(1)" : "translateY(8px) scale(0.985)",
           transition: "opacity 120ms ease, transform 120ms ease",
         }}
       >
         {word}
-      </div>
+      </span>
     </div>
   );
 }
@@ -509,8 +544,8 @@ function PlayerView({
             margin: "0 auto",
           }}
         />
-        {isBusy && !isFullscreen && (
-          <UpdatingOverlay word={loadingWord} visible={loadingVisible} dark={dark} />
+        {isBusy && (
+          <EditingOverlay word={loadingWord} visible={loadingVisible} />
         )}
       </div>
     </PlayerErrorBoundary>
@@ -668,11 +703,6 @@ function RemotionPlayerWidgetInner() {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#000", fontFamily: "system-ui, sans-serif" }}>
         <HeaderBar title={meta.title} dark={dark} isFullscreen isAvailable={isAvailable} onToggleFullscreen={toggleFullscreen} />
-        {isBusy && (
-          <div style={{ display: "flex", justifyContent: "center", padding: "0 14px 8px", pointerEvents: "none" }}>
-            <UpdatingOverlay word={loadingWord} visible={loadingVisible} dark={dark} />
-          </div>
-        )}
         <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 16px 16px", boxSizing: "border-box" }}>
           <div style={{ width: "100%", maxWidth: 1680 }}>{playerEl}</div>
         </div>
