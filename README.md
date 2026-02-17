@@ -57,7 +57,7 @@ There is one tool: `create_video`. It handles both creation and editing. The `fi
 
 ### Rule tools
 
-The server includes teaching tools that the model can call to learn Remotion patterns:
+The server includes teaching tools derived from the [remotion-best-practices](https://github.com/remotion-dev/skills) skill that the model can call to learn Remotion patterns:
 
 | Tool | Topic |
 |------|-------|
@@ -168,4 +168,4 @@ Note: [Remotion](https://remotion.dev) is a dependency with its own license. Fre
 
 ---
 
-Built with [mcp-use](https://mcp-use.com) and [Remotion](https://remotion.dev).
+Built with [mcp-use](https://mcp-use.com) and [Remotion](https://remotion.dev). Rule tools adapted from the [remotion-best-practices](https://github.com/remotion-dev/skills) skill by Remotion.
