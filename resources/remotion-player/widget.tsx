@@ -11,9 +11,41 @@ import React, {
 import { z } from "zod";
 import { useWidget, McpUseProvider, type WidgetMetadata } from "mcp-use/react";
 import { Player, type PlayerRef } from "@remotion/player";
-import { GrainGradient } from "@paper-design/shaders-react";
 import { compileBundle } from "./components/CodeComposition";
 import type { VideoMeta, VideoProjectData } from "../../types";
+
+import { GrainGradient } from "@paper-design/shaders-react";
+
+// ---------------------------------------------------------------------------
+// Error boundaries
+// ---------------------------------------------------------------------------
+
+class WidgetErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: string | null }
+> {
+  state = { error: null as string | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error: error.message };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[remotion-player] top-level error:", error.message, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 16, color: "#ff6b6b", fontFamily: "monospace", fontSize: 12 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Widget Error</div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{this.state.error}</div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 class PlayerErrorBoundary extends Component<
   { children: ReactNode; onError?: (msg: string) => void; dark: boolean },
@@ -27,7 +59,7 @@ class PlayerErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     this.props.onError?.(error.message);
-    console.error("[remotion]", error.message, info.componentStack);
+    console.error("[remotion-player] player error:", error.message, info.componentStack);
   }
 
   render() {
@@ -45,23 +77,19 @@ class PlayerErrorBoundary extends Component<
           }}
         >
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Error</div>
-          <div
-            style={{
-              opacity: 0.8,
-              fontSize: 12,
-              fontFamily: "monospace",
-              whiteSpace: "pre-wrap",
-            }}
-          >
+          <div style={{ opacity: 0.8, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
             {this.state.error}
           </div>
         </div>
       );
     }
-
     return this.props.children;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Widget metadata
+// ---------------------------------------------------------------------------
 
 const propSchema = z.object({
   videoProject: z
@@ -86,60 +114,42 @@ export const widgetMetadata: WidgetMetadata = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function positiveNumberOrFallback(value: unknown, fallback: number): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return value;
-  }
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
   return fallback;
 }
 
 function toPropsObject(value: unknown): Record<string, unknown> {
-  if (isRecord(value)) {
-    return value;
-  }
-  return {};
+  return isRecord(value) ? value : {};
 }
 
 function parseVideoProject(input: Record<string, unknown> | null): VideoProjectData | null {
-  if (!input) {
-    return null;
-  }
-
+  if (!input) return null;
   const raw = input.videoProject;
-  if (typeof raw !== "string") {
-    return null;
-  }
-
+  if (typeof raw !== "string") return null;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (!isRecord(parsed)) {
-      return null;
-    }
-
+    if (!isRecord(parsed)) return null;
     const meta = parsed.meta;
     const bundle = parsed.bundle;
-    if (!isRecord(meta) || typeof bundle !== "string" || bundle.trim().length === 0) {
-      return null;
-    }
-
-    const normalizedMeta: VideoMeta = {
-      title: typeof meta.title === "string" && meta.title.trim().length > 0 ? meta.title : "Untitled",
-      compositionId:
-        typeof meta.compositionId === "string" && meta.compositionId.trim().length > 0
-          ? meta.compositionId
-          : "Main",
-      width: positiveNumberOrFallback(meta.width, 1920),
-      height: positiveNumberOrFallback(meta.height, 1080),
-      fps: positiveNumberOrFallback(meta.fps, 30),
-      durationInFrames: positiveNumberOrFallback(meta.durationInFrames, 150),
-    };
-
+    if (!isRecord(meta) || typeof bundle !== "string" || bundle.trim().length === 0) return null;
     return {
-      meta: normalizedMeta,
+      meta: {
+        title: typeof meta.title === "string" && meta.title.trim().length > 0 ? meta.title : "Untitled",
+        compositionId: typeof meta.compositionId === "string" && meta.compositionId.trim().length > 0 ? meta.compositionId : "Main",
+        width: positiveNumberOrFallback(meta.width, 1920),
+        height: positiveNumberOrFallback(meta.height, 1080),
+        fps: positiveNumberOrFallback(meta.fps, 30),
+        durationInFrames: positiveNumberOrFallback(meta.durationInFrames, 150),
+      },
       bundle,
       defaultProps: toPropsObject(parsed.defaultProps),
       inputProps: toPropsObject(parsed.inputProps),
@@ -166,93 +176,352 @@ function readMetadataOverrides(overrides: Record<string, unknown>, fallback: Vid
     width: positiveNumberOrFallback(overrides.width, fallback.width),
     height: positiveNumberOrFallback(overrides.height, fallback.height),
     fps: positiveNumberOrFallback(overrides.fps, fallback.fps),
-    durationInFrames: positiveNumberOrFallback(
-      overrides.durationInFrames,
-      fallback.durationInFrames
-    ),
+    durationInFrames: positiveNumberOrFallback(overrides.durationInFrames, fallback.durationInFrames),
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function toSafeFileSlug(title: string): string {
-  const normalized = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const trimmed = normalized.replace(/^-+|-+$/g, "");
-  return trimmed || "video-preview";
-}
-
-function getSupportedRecorderMimeType(): string {
-  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
-    return "";
-  }
-
-  const candidates = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
-  ];
-
-  for (const candidate of candidates) {
-    if (MediaRecorder.isTypeSupported(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "";
-}
-
-function getCapturedMediaStream(element: Element): MediaStream | null {
-  const mediaElement = element as HTMLMediaElement & {
-    captureStream?: () => MediaStream;
-    mozCaptureStream?: () => MediaStream;
-  };
-
-  if (typeof mediaElement.captureStream === "function") {
-    return mediaElement.captureStream();
-  }
-  if (typeof mediaElement.mozCaptureStream === "function") {
-    return mediaElement.mozCaptureStream();
-  }
-
-  return null;
-}
+// ---------------------------------------------------------------------------
+// Loading words
+// ---------------------------------------------------------------------------
 
 const LOADING_WORDS = [
-  "Storyboarding",
-  "Keyframing",
-  "Colorgrading",
-  "Montaging",
-  "Clipjuggling",
-  "Renderwrangling",
-  "Timeline-taming",
-  "Scene-stitching",
-  "Framebuffing",
-  "Beziering",
-  "Rotoscoping",
-  "Whooshing",
-  "Boom-micing",
-  "Greenscreening",
-  "Lensfiddling",
-  "Foleying",
-  "Pixel-peeping",
-  "Shot-sweetening",
-  "Captionifying",
-  "Transition-wizarding",
-  "Slo-moing",
-  "B-rolling",
-  "Audio-polishing",
-  "Stabilizing",
-  "Export-spelunking",
-  "Render-re-rendering",
-  "Compiling-and-smiling",
-  "Cinema-cooking",
+  "Storyboarding", "Keyframing", "Colorgrading", "Montaging", "Clipjuggling",
+  "Renderwrangling", "Timeline-taming", "Scene-stitching", "Framebuffing",
+  "Beziering", "Rotoscoping", "Whooshing", "Boom-micing", "Greenscreening",
+  "Lensfiddling", "Foleying", "Pixel-peeping", "Shot-sweetening",
+  "Captionifying", "Transition-wizarding", "Slo-moing", "B-rolling",
+  "Audio-polishing", "Stabilizing", "Export-spelunking",
+  "Render-re-rendering", "Compiling-and-smiling", "Cinema-cooking",
 ];
 
-export default function RemotionPlayerWidget() {
+function useLoadingWord(active: boolean) {
+  const [index, setIndex] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!active) {
+      setVisible(true);
+      return;
+    }
+    const rotateMs = 2500;
+    const fadeMs = 220;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const interval = window.setInterval(() => {
+      setVisible(false);
+      timeout = window.setTimeout(() => {
+        setIndex((prev) => (prev + 1) % LOADING_WORDS.length);
+        setVisible(true);
+      }, fadeMs);
+    }, rotateMs);
+    return () => {
+      window.clearInterval(interval);
+      if (timeout !== null) window.clearTimeout(timeout);
+    };
+  }, [active]);
+
+  return { word: LOADING_WORDS[index] + "...", visible };
+}
+
+// ---------------------------------------------------------------------------
+// Shader background (safe — renders fallback gradient on failure)
+// ---------------------------------------------------------------------------
+
+function ShaderBackground({ style }: { style?: React.CSSProperties }) {
+  return (
+    <GrainGradient
+      width="100%"
+      height="100%"
+      colors={["#7300ff", "#eba8ff", "#00bfff", "#2b00ff", "#33cc99", "#3399cc", "#3333cc"]}
+      colorBack="#00000000"
+      softness={1}
+      intensity={1}
+      noise={0.0}
+      shape="corners"
+      speed={2}
+      scale={1.8}
+      style={style}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading state
+// ---------------------------------------------------------------------------
+
+function LoadingView({
+  word,
+  visible,
+  dark,
+  fullscreen,
+  onExitFullscreen,
+}: {
+  word: string;
+  visible: boolean;
+  dark: boolean;
+  fullscreen: boolean;
+  onExitFullscreen?: () => void;
+}) {
+  const height = fullscreen ? "100vh" : 260;
+  return (
+    <div
+      style={{
+        position: "relative",
+        height,
+        minHeight: 260,
+        borderRadius: fullscreen ? 0 : 8,
+        overflow: "hidden",
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      <ShaderBackground style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+      {fullscreen && onExitFullscreen && (
+        <div style={{ position: "absolute", top: 10, right: 10, zIndex: 2 }}>
+          <button
+            onClick={onExitFullscreen}
+            style={{
+              background: "rgba(255,255,255,0.08)",
+              border: "none",
+              cursor: "pointer",
+              padding: "7px 10px",
+              color: "#f4f4f4",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            Exit fullscreen
+          </button>
+        </div>
+      )}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: dark ? "#ffffff" : "#000000",
+          textAlign: "center",
+          padding: 24,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 16,
+            fontWeight: 500,
+            letterSpacing: 0.35,
+            lineHeight: 1,
+            opacity: visible ? 0.95 : 0,
+            transform: visible ? "translateY(0px) scale(1)" : "translateY(8px) scale(0.985)",
+            transition: "opacity 120ms ease, transform 120ms ease",
+          }}
+        >
+          {word}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Empty state
+// ---------------------------------------------------------------------------
+
+function EmptyView({ dark }: { dark: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 200,
+        background: dark ? "#141414" : "#fff",
+        borderRadius: 8,
+        fontFamily: "system-ui, sans-serif",
+        color: dark ? "#777" : "#888",
+        fontSize: 13,
+        textAlign: "center",
+        padding: 16,
+      }}
+    >
+      No video project data was returned. Check the tool output and call create_video or update_video again.
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Header bar
+// ---------------------------------------------------------------------------
+
+function HeaderBar({
+  title,
+  dark,
+  isFullscreen,
+  isAvailable,
+  onToggleFullscreen,
+}: {
+  title: string;
+  dark: boolean;
+  isFullscreen: boolean;
+  isAvailable: boolean;
+  onToggleFullscreen: () => void;
+}) {
+  const fg = dark ? "#e0e0e0" : "#1a1a1a";
+  const fg2 = dark ? "#777" : "#888";
+
+  const fsIcon = isFullscreen ? (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 2 6 6 2 6" /><polyline points="10 14 10 10 14 10" />
+      <line x1="2" y1="2" x2="6" y2="6" /><line x1="14" y1="14" x2="10" y2="10" />
+    </svg>
+  ) : (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="10 2 14 2 14 6" /><polyline points="6 14 2 14 2 10" />
+      <line x1="14" y1="2" x2="10" y2="6" /><line x1="2" y1="14" x2="6" y2="10" />
+    </svg>
+  );
+
+  return (
+    <div style={{ padding: "6px 10px 6px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+      <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{title}</span>
+      <button
+        onClick={onToggleFullscreen}
+        disabled={!isAvailable}
+        title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: isAvailable ? "pointer" : "not-allowed",
+          padding: 6,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: fg2,
+          borderRadius: 4,
+          opacity: isAvailable ? 0.7 : 0.35,
+        }}
+      >
+        {fsIcon}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Updating overlay
+// ---------------------------------------------------------------------------
+
+function UpdatingOverlay({ word, visible, dark }: { word: string; visible: boolean; dark: boolean }) {
+  return (
+    <div style={{ position: "absolute", left: 10, right: 10, bottom: 10, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+      <div
+        style={{
+          background: dark ? "rgba(0,0,0,0.68)" : "rgba(255,255,255,0.9)",
+          borderRadius: 999,
+          padding: "5px 12px",
+          color: dark ? "#f4f4f4" : "#1b1b1b",
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: 0.22,
+          opacity: visible ? 0.95 : 0,
+          transform: visible ? "translateY(0px) scale(1)" : "translateY(6px) scale(0.985)",
+          transition: "opacity 120ms ease, transform 120ms ease",
+        }}
+      >
+        {word}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Player view
+// ---------------------------------------------------------------------------
+
+function PlayerView({
+  compiledProject,
+  compileError,
+  mergedProps,
+  meta,
+  dark,
+  isBusy,
+  isFullscreen,
+  loadingWord,
+  loadingVisible,
+  onPlayerError,
+}: {
+  compiledProject: ReturnType<typeof compileBundle> | null;
+  compileError: string | null;
+  mergedProps: Record<string, unknown>;
+  meta: VideoMeta;
+  dark: boolean;
+  isBusy: boolean;
+  isFullscreen: boolean;
+  loadingWord: string;
+  loadingVisible: boolean;
+  onPlayerError: (msg: string) => void;
+}) {
+  const ref = useRef<PlayerRef>(null);
+
+  if (compileError) {
+    return (
+      <div
+        style={{
+          padding: 16,
+          background: dark ? "#1c1c1c" : "#f5f5f5",
+          borderRadius: 8,
+          fontFamily: "system-ui, sans-serif",
+          color: dark ? "#ff6b6b" : "#dc3545",
+          fontSize: 13,
+        }}
+      >
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Compilation Error</div>
+        <div style={{ opacity: 0.8, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+          {compileError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!compiledProject || "error" in compiledProject) {
+    return null;
+  }
+
+  return (
+    <PlayerErrorBoundary onError={onPlayerError} dark={dark}>
+      <div style={{ position: "relative", width: "100%", maxWidth: isFullscreen ? "100%" : undefined, margin: isFullscreen ? "0 auto" : undefined }}>
+        <Player
+          ref={ref}
+          component={compiledProject.component as any}
+          inputProps={mergedProps}
+          durationInFrames={meta.durationInFrames}
+          fps={meta.fps}
+          compositionWidth={meta.width}
+          compositionHeight={meta.height}
+          controls
+          autoPlay
+          loop
+          style={{
+            width: "100%",
+            maxWidth: "100%",
+            maxHeight: isFullscreen ? "calc(100vh - 56px)" : undefined,
+            margin: "0 auto",
+          }}
+        />
+        {isBusy && !isFullscreen && (
+          <UpdatingOverlay word={loadingWord} visible={loadingVisible} dark={dark} />
+        )}
+      </div>
+    </PlayerErrorBoundary>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget
+// ---------------------------------------------------------------------------
+
+function RemotionPlayerWidgetInner() {
   const {
     props,
     isPending,
@@ -264,107 +533,60 @@ export default function RemotionPlayerWidget() {
     requestDisplayMode,
   } = useWidget<z.infer<typeof propSchema>>();
 
-  const ref = useRef<PlayerRef>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const prevRef = useRef<VideoProjectData | null>(null);
   const isFullscreen = displayMode === "fullscreen" && isAvailable;
+  const dark = theme === "dark";
+  const bg = dark ? "#141414" : "#fff";
+  const isBusy = isPending || isStreaming;
 
+  // --- Parse project data ---
   const rawVideoProject = useMemo(() => {
     const value = (props as Record<string, unknown> | null)?.videoProject;
     return typeof value === "string" ? value : null;
   }, [props]);
 
   const finalData = useMemo(() => {
-    if (isPending || !rawVideoProject) {
-      return null;
-    }
+    if (isPending || !rawVideoProject) return null;
     return parseVideoProject({ videoProject: rawVideoProject });
   }, [isPending, rawVideoProject]);
 
   useEffect(() => {
-    if (finalData) {
-      prevRef.current = finalData;
-    }
+    if (finalData) prevRef.current = finalData;
   }, [finalData]);
 
-  const data = finalData || ((isPending || isStreaming) ? prevRef.current : null);
+  const data = finalData || (isBusy ? prevRef.current : null);
   const hasData = !!data;
-  const isBusy = isPending || isStreaming;
   const isLoading = !hasData && isBusy;
-  const [loadingWordIndex, setLoadingWordIndex] = useState(0);
-  const [loadingWordVisible, setLoadingWordVisible] = useState(true);
-  const [isRecordingDownload, setIsRecordingDownload] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isBusy) {
-      setLoadingWordVisible(true);
-      return;
-    }
+  // --- Loading word ---
+  const { word: loadingWord, visible: loadingVisible } = useLoadingWord(isBusy);
 
-    const rotateEveryMs = 2500;
-    const fadeMs = 220;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    const intervalId = window.setInterval(() => {
-      setLoadingWordVisible(false);
-      timeoutId = window.setTimeout(() => {
-        setLoadingWordIndex((prev) => (prev + 1) % LOADING_WORDS.length);
-        setLoadingWordVisible(true);
-      }, fadeMs);
-    }, rotateEveryMs);
-
-    return () => {
-      window.clearInterval(intervalId);
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [isBusy]);
-
-  useEffect(() => {
-    setDownloadError(null);
-  }, [data?.bundle]);
-
-  const mergedProps = useMemo(() => {
-    if (!data) {
-      return {};
-    }
-    return mergeProps(data.defaultProps, data.inputProps);
-  }, [data]);
-
+  // --- Compile bundle ---
   const compiled = useMemo(() => {
-    if (!data || data.compileError) {
-      return null;
-    }
+    if (!data || data.compileError) return null;
     return compileBundle(data.bundle);
   }, [data?.bundle, data?.compileError]);
 
+  const compileError = data?.compileError ?? (compiled && "error" in compiled ? compiled.error : null);
+  const compiledProject = compiled && !("error" in compiled) ? compiled : null;
+
+  // --- Merge props ---
+  const mergedProps = useMemo(() => {
+    if (!data) return {};
+    return mergeProps(data.defaultProps, data.inputProps);
+  }, [data]);
+
+  // --- Resolve metadata (calculateMetadata) ---
   const [resolvedMeta, setResolvedMeta] = useState<VideoMeta | null>(null);
 
   useEffect(() => {
-    if (!data) {
-      setResolvedMeta(null);
-      return;
-    }
+    if (!data) { setResolvedMeta(null); return; }
     setResolvedMeta(data.meta);
-  }, [
-    data?.bundle,
-    data?.meta.title,
-    data?.meta.compositionId,
-    data?.meta.width,
-    data?.meta.height,
-    data?.meta.fps,
-    data?.meta.durationInFrames,
-  ]);
+  }, [data?.bundle, data?.meta.title, data?.meta.compositionId, data?.meta.width, data?.meta.height, data?.meta.fps, data?.meta.durationInFrames]);
 
   useEffect(() => {
-    if (!data || !compiled || "error" in compiled || !compiled.calculateMetadata) {
-      return;
-    }
-
+    if (!data || !compiled || "error" in compiled || !compiled.calculateMetadata) return;
     const controller = new AbortController();
-
     Promise.resolve(
       compiled.calculateMetadata({
         props: mergedProps,
@@ -374,658 +596,108 @@ export default function RemotionPlayerWidget() {
       })
     )
       .then((metadata) => {
-        if (controller.signal.aborted || !isRecord(metadata)) {
-          return;
-        }
-
+        if (controller.signal.aborted || !isRecord(metadata)) return;
         setResolvedMeta((current) => readMetadataOverrides(metadata, current ?? data.meta));
       })
       .catch((error) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        try {
-          sendFollowUpMessage(
-            `calculateMetadata() failed:\n\n\`${(error as Error).message}\`\n\nPlease fix the project and call create_video or update_video again.`
-          );
-        } catch {
-          // Ignore follow-up failures.
-        }
+        if (controller.signal.aborted) return;
+        try { sendFollowUpMessage(`calculateMetadata() failed:\n\n\`${(error as Error).message}\`\n\nPlease fix the project and call create_video or update_video again.`); } catch {}
       });
-
     return () => controller.abort();
   }, [compiled, data, mergedProps, sendFollowUpMessage]);
 
-  const compileError = data?.compileError ?? (compiled && "error" in compiled ? compiled.error : null);
-  const compiledProject = compiled && !("error" in compiled) ? compiled : null;
-
+  // --- Send follow-up on compile error ---
   useEffect(() => {
-    if (!compileError || data?.compileError) {
-      return;
-    }
-
-    try {
-      sendFollowUpMessage(
-        `The project had a compilation error:\n\n\`${compileError}\`\n\nPlease fix the files and call create_video or update_video again.`
-      );
-    } catch {
-      // Ignore follow-up failures.
-    }
+    if (!compileError || data?.compileError) return;
+    try { sendFollowUpMessage(`The project had a compilation error:\n\n\`${compileError}\`\n\nPlease fix the files and call create_video or update_video again.`); } catch {}
   }, [compileError, sendFollowUpMessage]);
 
+  // --- Fullscreen toggle ---
   const toggleFullscreen = useCallback(() => {
     const nextMode = isFullscreen ? "inline" : "fullscreen";
     requestDisplayMode(nextMode).catch((error) => {
-      console.error(`[remotion] Failed to request display mode "${nextMode}"`, error);
+      console.error(`[remotion-player] Failed to request display mode "${nextMode}"`, error);
     });
   }, [isFullscreen, requestDisplayMode]);
 
+  // --- Player error handler ---
   const handlePlayerError = useCallback(
     (msg: string) => {
-      try {
-        sendFollowUpMessage(
-          `The video had a runtime error:\n\n\`${msg}\`\n\nPlease fix the project and call create_video or update_video again.`
-        );
-      } catch {
-        // Ignore follow-up failures.
-      }
+      try { sendFollowUpMessage(`The video had a runtime error:\n\n\`${msg}\`\n\nPlease fix the project and call create_video or update_video again.`); } catch {}
     },
     [sendFollowUpMessage]
   );
 
-  const dark = theme === "dark";
-  const bg = dark ? "#141414" : "#fff";
-  const fg = dark ? "#e0e0e0" : "#1a1a1a";
-  const fg2 = dark ? "#777" : "#888";
+  const meta = resolvedMeta ?? data?.meta ?? { title: "Untitled", compositionId: "Main", width: 1920, height: 1080, fps: 30, durationInFrames: 150 };
 
-  if (!hasData) {
-    const statusText =
-      "No video project data was returned. Check the tool output and call create_video or update_video again.";
-
-    if (isLoading) {
-      if (isFullscreen) {
-        return (
-          <McpUseProvider autoSize>
-            <div
-              style={{
-                position: "relative",
-                height: "100vh",
-                overflow: "hidden",
-                background: "#000",
-                fontFamily: "system-ui, sans-serif",
-              }}
-            >
-              <GrainGradient
-                width="100%"
-                height="100%"
-                colors={["#7300ff", "#eba8ff", "#00bfff", "#2b00ff", "#33cc99", "#3399cc", "#3333cc"]}
-                colorBack="#00000000"
-                softness={1}
-                intensity={1}
-                noise={0.0}
-                shape="corners"
-                speed={2}
-                scale={1.8}
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-              />
-              <div style={{ position: "absolute", top: 10, right: 10, zIndex: 2 }}>
-                <button
-                  onClick={toggleFullscreen}
-                  disabled={!isAvailable}
-                  title="Exit fullscreen"
-                  style={{
-                    background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-                    border: "none",
-                    cursor: isAvailable ? "pointer" : "not-allowed",
-                    padding: "7px 10px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: dark ? "#f4f4f4" : "#1b1b1b",
-                    borderRadius: 6,
-                    opacity: isAvailable ? 0.88 : 0.45,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: 0.2,
-                    lineHeight: 1,
-                  }}
-                >
-                  Exit fullscreen
-                </button>
-              </div>
-              <div
-                style={{
-                  position: "relative",
-                  zIndex: 1,
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: dark ? "#ffffff" : "#000000",
-                  textAlign: "center",
-                  padding: 24,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 500,
-                    letterSpacing: 0.35,
-                    lineHeight: 1,
-                    color: dark ? "#ffffff" : "#000000",
-                    textShadow: "none",
-                    opacity: loadingWordVisible ? 0.95 : 0,
-                    transform: loadingWordVisible
-                      ? "translateY(0px) scale(1)"
-                      : "translateY(8px) scale(0.985)",
-                    transition: "opacity 120ms ease, transform 120ms ease",
-                  }}
-                >
-                  {LOADING_WORDS[loadingWordIndex] + "..."}
-                </span>
-              </div>
-            </div>
-          </McpUseProvider>
-        );
-      }
-
-      return (
-        <McpUseProvider autoSize>
-          <div
-            style={{
-              position: "relative",
-              minHeight: 260,
-              borderRadius: 8,
-              overflow: "hidden",
-              fontFamily: "system-ui, sans-serif",
-            }}
-          >
-            <GrainGradient
-              width="100%"
-              height={260}
-              colors={["#7300ff", "#eba8ff", "#00bfff", "#2b00ff", "#33cc99", "#3399cc", "#3333cc"]}
-              colorBack="#00000000"
-              softness={1}
-              intensity={1}
-              noise={0.0}
-              shape="corners"
-              speed={2}
-              scale={1.8}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-            />
-            <div
-              style={{
-                position: "relative",
-                zIndex: 1,
-                minHeight: 260,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 0,
-                color: dark ? "#ffffff" : "#000000",
-                textAlign: "center",
-                padding: 20,
-                textShadow: "0 1px 2px rgba(255,255,255,0.35)",
-              }}
-            >
-              <div style={{ minHeight: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 500,
-                    letterSpacing: 0.35,
-                    lineHeight: 1.0,
-                    color: dark ? "#ffffff" : "#000000",
-                    textShadow: "none",
-                    opacity: loadingWordVisible ? 0.95 : 0,
-                    transform: loadingWordVisible
-                      ? "translateY(0px) scale(1)"
-                      : "translateY(8px) scale(0.985)",
-                    transition: "opacity 120ms ease, transform 120ms ease",
-                  }}
-                >
-                  {LOADING_WORDS[loadingWordIndex] + "..."}
-                </span>
-              </div>
-            </div>
-          </div>
-        </McpUseProvider>
-      );
-    }
-
+  // --- Loading state (no data yet, tool is running) ---
+  if (isLoading) {
     return (
-      <McpUseProvider autoSize>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: 200,
-            background: bg,
-            borderRadius: 8,
-            fontFamily: "system-ui, sans-serif",
-            color: fg2,
-            fontSize: 13,
-            textAlign: "center",
-            padding: 16,
-          }}
-        >
-          {statusText}
-        </div>
-      </McpUseProvider>
+      <LoadingView
+        word={loadingWord}
+        visible={loadingVisible}
+        dark={dark}
+        fullscreen={isFullscreen}
+        onExitFullscreen={isFullscreen ? toggleFullscreen : undefined}
+      />
     );
   }
 
-  const meta = resolvedMeta ?? data!.meta;
-  const downloadDisabled = !compiledProject || !!compileError || isRecordingDownload;
+  // --- Empty state (no data, tool is done) ---
+  if (!hasData) {
+    return <EmptyView dark={dark} />;
+  }
 
-  const downloadPreview = useCallback(async () => {
-    if (!compiledProject || !ref.current) {
-      setDownloadError("Preview is not ready yet.");
-      return;
-    }
-
-    setDownloadError(null);
-    setIsRecordingDownload(true);
-
-    let stream: MediaStream | null = null;
-    let recorder: MediaRecorder | null = null;
-
-    try {
-      if (typeof MediaRecorder === "undefined") {
-        throw new Error("Recording is not supported in this environment.");
-      }
-
-      const player = ref.current;
-      const containerNode = player.getContainerNode();
-      const canvas = containerNode?.querySelector("canvas");
-      if (!(canvas instanceof HTMLCanvasElement)) {
-        throw new Error("Could not find preview canvas to record.");
-      }
-      if (typeof canvas.captureStream !== "function") {
-        throw new Error("Canvas recording is not supported in this browser.");
-      }
-
-      const mimeType = getSupportedRecorderMimeType();
-      stream = canvas.captureStream(meta.fps);
-      const mediaElements = Array.from(containerNode.querySelectorAll("video, audio"));
-      for (const mediaElement of mediaElements) {
-        const mediaStream = getCapturedMediaStream(mediaElement);
-        if (!mediaStream) {
-          continue;
-        }
-        for (const audioTrack of mediaStream.getAudioTracks()) {
-          stream.addTrack(audioTrack);
-        }
-      }
-
-      const chunks: BlobPart[] = [];
-      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-
-      const recordingFinished = new Promise<void>((resolve, reject) => {
-        recorder!.ondataavailable = (event: BlobEvent) => {
-          if (event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        };
-        recorder!.onerror = () => {
-          reject(recorder!.error ?? new Error("Recording failed."));
-        };
-        recorder!.onstop = () => resolve();
-      });
-
-      player.pause();
-      player.seekTo(0);
-      await sleep(60);
-
-      recorder.start(200);
-      player.play();
-
-      const durationMs = Math.max(
-        300,
-        Math.ceil((meta.durationInFrames / meta.fps) * 1000)
-      );
-      await sleep(durationMs + 140);
-
-      player.pause();
-      if (recorder.state !== "inactive") {
-        recorder.stop();
-      }
-      await recordingFinished;
-
-      const blob = new Blob(chunks, {
-        type: mimeType || "video/webm",
-      });
-      const fileName = `${toSafeFileSlug(meta.title)}.webm`;
-      const objectUrl = URL.createObjectURL(blob);
-
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = fileName;
-      anchor.rel = "noopener";
-      anchor.style.display = "none";
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-
-      window.setTimeout(() => {
-        URL.revokeObjectURL(objectUrl);
-      }, 60_000);
-    } catch (error) {
-      setDownloadError(
-        (error as Error)?.message || "Unable to export preview video."
-      );
-    } finally {
-      if (recorder && recorder.state !== "inactive") {
-        recorder.stop();
-      }
-      if (stream) {
-        stream.getTracks().forEach((track) => {
-          track.stop();
-        });
-      }
-      setIsRecordingDownload(false);
-    }
-  }, [compiledProject, meta.durationInFrames, meta.fps, meta.title]);
-
-  const fsIcon = isFullscreen ? (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="6 2 6 6 2 6" />
-      <polyline points="10 14 10 10 14 10" />
-      <line x1="2" y1="2" x2="6" y2="6" />
-      <line x1="14" y1="14" x2="10" y2="10" />
-    </svg>
-  ) : (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="10 2 14 2 14 6" />
-      <polyline points="6 14 2 14 2 10" />
-      <line x1="14" y1="2" x2="10" y2="6" />
-      <line x1="2" y1="14" x2="6" y2="10" />
-    </svg>
-  );
-
-  const header = (
-    <div
-      style={{
-        padding: "6px 10px 6px 14px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexShrink: 0,
-      }}
-    >
-      <span style={{ color: fg, fontSize: 13, fontWeight: 500 }}>{meta.title}</span>
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <button
-          onClick={downloadPreview}
-          disabled={downloadDisabled}
-          title={
-            compileError
-              ? "Fix compilation errors before exporting."
-              : "Download preview as WebM"
-          }
-          style={{
-            background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-            border: "none",
-            cursor: downloadDisabled ? "not-allowed" : "pointer",
-            padding: "6px 9px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: fg,
-            borderRadius: 6,
-            opacity: downloadDisabled ? 0.45 : 0.9,
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0.2,
-            lineHeight: 1,
-          }}
-        >
-          {isRecordingDownload ? "Recording..." : "Download .webm"}
-        </button>
-        <button
-          onClick={toggleFullscreen}
-          disabled={!isAvailable}
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: isAvailable ? "pointer" : "not-allowed",
-            padding: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: fg2,
-            borderRadius: 4,
-            opacity: isAvailable ? 0.7 : 0.35,
-          }}
-        >
-          {fsIcon}
-        </button>
-      </div>
-    </div>
-  );
-
+  // --- Player state ---
   const playerEl = (
-    <PlayerErrorBoundary onError={handlePlayerError} dark={dark}>
-      {compileError ? (
-        <div
-          style={{
-            padding: 16,
-            background: dark ? "#1c1c1c" : "#f5f5f5",
-            borderRadius: 8,
-            fontFamily: "system-ui, sans-serif",
-            color: dark ? "#ff6b6b" : "#dc3545",
-            fontSize: 13,
-          }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Compilation Error</div>
-          <div
-            style={{
-              opacity: 0.8,
-              fontSize: 12,
-              fontFamily: "monospace",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {compileError}
-          </div>
-        </div>
-      ) : (
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            maxWidth: isFullscreen ? "100%" : undefined,
-            margin: isFullscreen ? "0 auto" : undefined,
-          }}
-        >
-          <Player
-            ref={ref}
-            component={compiledProject?.component as any}
-            inputProps={mergedProps}
-            durationInFrames={meta.durationInFrames}
-            fps={meta.fps}
-            compositionWidth={meta.width}
-            compositionHeight={meta.height}
-            controls
-            autoPlay
-            loop
-            style={{
-              width: "100%",
-              maxWidth: "100%",
-              maxHeight: isFullscreen ? "calc(100vh - 56px)" : undefined,
-              margin: "0 auto",
-            }}
-          />
-          {isBusy && !isFullscreen ? (
-            <div
-              style={{
-                position: "absolute",
-                left: 10,
-                right: 10,
-                bottom: 10,
-                display: "flex",
-                justifyContent: "center",
-                pointerEvents: "none",
-              }}
-            >
-              <div
-                style={{
-                  background: dark ? "rgba(0,0,0,0.68)" : "rgba(255,255,255,0.9)",
-                  borderRadius: 999,
-                  padding: "5px 12px",
-                  color: dark ? "#f4f4f4" : "#1b1b1b",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: 0.22,
-                  opacity: loadingWordVisible ? 0.95 : 0,
-                  transform: loadingWordVisible
-                    ? "translateY(0px) scale(1)"
-                    : "translateY(6px) scale(0.985)",
-                  transition: "opacity 120ms ease, transform 120ms ease",
-                }}
-              >
-                {LOADING_WORDS[loadingWordIndex] + "..."}
-              </div>
-            </div>
-          ) : null}
-          {isRecordingDownload ? (
-            <div
-              style={{
-                position: "absolute",
-                top: 8,
-                right: 8,
-                background: dark ? "rgba(0,0,0,0.75)" : "rgba(255,255,255,0.92)",
-                borderRadius: 999,
-                padding: "4px 10px",
-                color: dark ? "#ddd" : "#222",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: 0.2,
-              }}
-            >
-              Recording download...
-            </div>
-          ) : null}
-        </div>
-      )}
-    </PlayerErrorBoundary>
+    <PlayerView
+      compiledProject={compiledProject}
+      compileError={compileError}
+      mergedProps={mergedProps}
+      meta={meta}
+      dark={dark}
+      isBusy={isBusy}
+      isFullscreen={isFullscreen}
+      loadingWord={loadingWord}
+      loadingVisible={loadingVisible}
+      onPlayerError={handlePlayerError}
+    />
   );
 
   if (isFullscreen) {
     return (
-      <McpUseProvider autoSize>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "100vh",
-            background: "#000",
-            fontFamily: "system-ui, sans-serif",
-          }}
-        >
-          {header}
-          {downloadError ? (
-            <div
-              style={{
-                padding: "0 14px 8px",
-                color: dark ? "#ff8686" : "#a32b2b",
-                fontSize: 11,
-                fontWeight: 500,
-              }}
-            >
-              {downloadError}
-            </div>
-          ) : null}
-          {isBusy ? (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                padding: "0 14px 8px",
-                pointerEvents: "none",
-              }}
-            >
-              <div
-                style={{
-                  background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-                  borderRadius: 999,
-                  padding: "5px 12px",
-                  color: dark ? "#f4f4f4" : "#1b1b1b",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: 0.22,
-                  opacity: loadingWordVisible ? 0.95 : 0,
-                  transform: loadingWordVisible
-                    ? "translateY(0px) scale(1)"
-                    : "translateY(6px) scale(0.985)",
-                  transition: "opacity 120ms ease, transform 120ms ease",
-                }}
-              >
-                {LOADING_WORDS[loadingWordIndex] + "..."}
-              </div>
-            </div>
-          ) : null}
-          <div
-            style={{
-              flex: 1,
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "12px 16px 16px",
-              boxSizing: "border-box",
-            }}
-          >
-            <div style={{ width: "100%", maxWidth: 1680 }}>{playerEl}</div>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#000", fontFamily: "system-ui, sans-serif" }}>
+        <HeaderBar title={meta.title} dark={dark} isFullscreen isAvailable={isAvailable} onToggleFullscreen={toggleFullscreen} />
+        {isBusy && (
+          <div style={{ display: "flex", justifyContent: "center", padding: "0 14px 8px", pointerEvents: "none" }}>
+            <UpdatingOverlay word={loadingWord} visible={loadingVisible} dark={dark} />
           </div>
+        )}
+        <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 16px 16px", boxSizing: "border-box" }}>
+          <div style={{ width: "100%", maxWidth: 1680 }}>{playerEl}</div>
         </div>
-      </McpUseProvider>
+      </div>
     );
   }
 
   return (
+    <div style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}>
+      <HeaderBar title={meta.title} dark={dark} isFullscreen={false} isAvailable={isAvailable} onToggleFullscreen={toggleFullscreen} />
+      {playerEl}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export with error boundary + provider
+// ---------------------------------------------------------------------------
+
+export default function RemotionPlayerWidget() {
+  return (
     <McpUseProvider autoSize>
-      <div
-        ref={containerRef}
-        style={{ borderRadius: 8, overflow: "hidden", background: bg, fontFamily: "system-ui, sans-serif" }}
-      >
-        {header}
-        {downloadError ? (
-          <div
-            style={{
-              padding: "0 14px 8px",
-              color: dark ? "#ff8686" : "#a32b2b",
-              fontSize: 11,
-              fontWeight: 500,
-            }}
-          >
-            {downloadError}
-          </div>
-        ) : null}
-        {playerEl}
-      </div>
+      <WidgetErrorBoundary>
+        <RemotionPlayerWidgetInner />
+      </WidgetErrorBoundary>
     </McpUseProvider>
   );
 }
