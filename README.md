@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="assets/header.svg" alt="Remotion MCP" width="100%"/>
+  <a href="https://github.com/mcp-use/remotion-mcp-app/releases/download/v1.0.0/ClaudeRemotionDemo.mp4">
+    <img src="assets/demo-claude.gif" alt="Remotion MCP App Demo" width="100%"/>
+  </a>
 </p>
 
 # Remotion MCP App
