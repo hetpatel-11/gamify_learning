@@ -204,7 +204,7 @@ server.tool(
   {
     name: "update_video",
     description:
-      "Update the current session video project. Pass changed files as a plain {path: code} object (NOT an array), " +
+      "Updates the current session video project. Pass changed files as a plain {path: code} object (NOT an array), " +
       'e.g. {"files":{"/src/Video.tsx":"...new code..."}}. Merges with previous session state by default. ' +
       "Do NOT wrap in extra keys like project/input/params.",
     schema: updateVideoSchema as any,
