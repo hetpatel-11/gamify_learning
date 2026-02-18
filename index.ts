@@ -164,7 +164,7 @@ server.tool(
 );
 
 server.get("/.well-known/openai-apps-challenge", (c) => {
-  return c.text("gPONHvOywqzsT3-iJ5is_xR6HysaW9Gbls7TeneGI8M");
+  return c.text("gP0NHv0ywqzsT3-iJ5is_xR6HysaW9Gbls7TeneGl8M");
 });
 
 await server.listen(port);
