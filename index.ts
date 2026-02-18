@@ -163,7 +163,7 @@ server.tool(
   }
 );
 
-server.get("/.well-known/openai-apps", (c) => {
+server.get("/.well-known/openai-apps-challenge", (c) => {
   return c.text("gPONHvOywqzsT3-iJ5is_xR6HysaW9Gbls7TeneGI8M");
 });
 
