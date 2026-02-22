@@ -13,6 +13,7 @@ Call these tools to learn specific Remotion topics:
 - **rule_remotion_transitions** — TransitionSeries, fade, slide, wipe, flip
 - **rule_remotion_text_animations** — Typewriter effect, word highlighting
 - **rule_remotion_trimming** — Trim start/end of animations with Sequence
+- **rule_remotion_diagrams** — Animated diagrams: flowcharts, node graphs, bar/donut charts, timelines, split text+diagram explainer layouts, animated code blocks
 
 ## Quick Start
 
@@ -30,6 +31,15 @@ When creating a video from a URL:
 - Use the theme's mood and keywords to guide animation style and typography choices
 - Reference the keyPoints as the actual content/narrative for each scene
 - Example: paulgraham.com → YC orange (#FF6600) theme, serif typewriter feel, intellectual founder energy
+
+## Diagram & Explainer Video Requests
+
+When the user asks for a diagram, flowchart, explainer video, chart, or visualization:
+- Call **rule_remotion_diagrams** to get ready-to-use patterns for nodes/arrows/bars/donuts/timelines
+- Use SVG for all shapes — it scales perfectly and supports draw-on animations via strokeDashoffset
+- Use split layout (left text + right diagram) for "explain X" style requests
+- Stagger node/element entrance delays by 10–20 frames for visual flow
+- Combine with scrape_url for URL-based explainer videos with on-brand theming
 
 ## Important Rules
 

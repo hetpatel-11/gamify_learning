@@ -8,6 +8,7 @@ import { RULE_REMOTION_SEQUENCING } from "./rules/remotion-sequencing.js";
 import { RULE_REMOTION_TRANSITIONS } from "./rules/remotion-transitions.js";
 import { RULE_REMOTION_TEXT_ANIMATIONS } from "./rules/remotion-text-animations.js";
 import { RULE_REMOTION_TRIMMING } from "./rules/remotion-trimming.js";
+import { RULE_REMOTION_DIAGRAMS } from "./rules/remotion-diagrams.js";
 import {
   DEFAULT_META,
   compileAndRespondWithProject,
@@ -316,6 +317,11 @@ server.tool(
 server.tool(
   { name: "rule_remotion_trimming", description: "Remotion trimming: cut start/end of animations with negative Sequence from" },
   async () => text(RULE_REMOTION_TRIMMING)
+);
+
+server.tool(
+  { name: "rule_remotion_diagrams", description: "Animated diagrams: flowcharts, node graphs, bar charts, donuts, timelines, split text+diagram explainer layouts, animated code blocks" },
+  async () => text(RULE_REMOTION_DIAGRAMS)
 );
 
 // --- Scrape tool ---
