@@ -1,14 +1,17 @@
 {
-  "name": "remotion-mcp-app",
+  "name": "gamified-learning",
   "type": "module",
   "version": "1.0.0",
-  "description": "MCP App for creating animated Remotion video compositions with a live interactive player. Design videos through conversation with AI.",
+  "description": "Gamified learning engine — turn any topic or URL into animated module-based video lessons with XP, quizzes, achievements, and progress tracking via Remotion.",
   "license": "MIT",
   "keywords": [
     "mcp",
     "mcp-apps",
     "mcp-use",
     "remotion",
+    "education",
+    "gamification",
+    "learning",
     "video",
     "react",
     "animation"

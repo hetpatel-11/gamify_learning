@@ -9,6 +9,7 @@ import { RULE_REMOTION_TRANSITIONS } from "./rules/remotion-transitions.js";
 import { RULE_REMOTION_TEXT_ANIMATIONS } from "./rules/remotion-text-animations.js";
 import { RULE_REMOTION_TRIMMING } from "./rules/remotion-trimming.js";
 import { RULE_REMOTION_DIAGRAMS } from "./rules/remotion-diagrams.js";
+import { RULE_GAMIFIED_LEARNING } from "./rules/gamified-learning.js";
 import {
   DEFAULT_META,
   compileAndRespondWithProject,
@@ -648,6 +649,11 @@ server.tool(
   async () => text(RULE_REMOTION_DIAGRAMS)
 );
 
+server.tool(
+  { name: "rule_gamified_learning", description: "Gamified learning patterns: XP bars, module badges, key point reveals, quiz cards with answer reveal, achievement popups, level-up scenes, difficulty system, full module sequence structure" },
+  async () => text(RULE_GAMIFIED_LEARNING)
+);
+
 // --- Scrape tool ---
 
 server.tool(
@@ -714,6 +720,337 @@ server.tool(
     };
 
     return text(JSON.stringify(result, null, 2));
+  }
+);
+
+// --- Gamified Learning tool ---
+
+const learningModuleSchema = z.object({
+  topic: z.string().describe("The topic to teach, e.g. 'How RSA Encryption Works'"),
+  difficulty: z.enum(["beginner", "intermediate", "advanced", "boss"]).optional().default("beginner"),
+  modules: z.array(z.object({
+    title: z.string().describe("Module title, e.g. 'What is a Prime Number?'"),
+    keyPoints: z.array(z.string()).describe("3–5 concise key points to display in this module"),
+    diagramType: z.enum(["none", "flowchart", "comparison", "timeline", "stats"]).optional().default("none"),
+    diagramData: z.any().optional().describe("Optional data for the diagram"),
+  })).describe("Array of learning modules (2–5 recommended)"),
+  quiz: z.object({
+    question: z.string(),
+    options: z.array(z.string()).length(4),
+    correctIndex: z.number().min(0).max(3),
+  }).optional().describe("Optional quiz at the end"),
+  theme: z.object({
+    primaryColor: z.string().optional(),
+    backgroundColor: z.string().optional(),
+    accentColor: z.string().optional(),
+  }).optional().describe("Override colors (defaults to a dark purple/gold gamified look)"),
+  xpTotal: z.number().optional().default(500),
+});
+
+function generateGamifiedVideoCode(input: z.infer<typeof learningModuleSchema>): Record<string, string> {
+  const difficulty = input.difficulty ?? "beginner";
+  const xpTotal = input.xpTotal ?? 500;
+
+  const DIFF_COLORS: Record<string, { badge: string; glow: string; label: string }> = {
+    beginner:     { badge: "#22C55E", glow: "#22C55E44", label: "Beginner" },
+    intermediate: { badge: "#F59E0B", glow: "#F59E0B44", label: "Intermediate" },
+    advanced:     { badge: "#EF4444", glow: "#EF444444", label: "Advanced" },
+    boss:         { badge: "#A855F7", glow: "#A855F744", label: "Boss Level" },
+  };
+
+  const diff = DIFF_COLORS[difficulty]!;
+  const primary = input.theme?.primaryColor ?? "#7C3AED";
+  const bg = input.theme?.backgroundColor ?? "#0D0D1A";
+  const accent = input.theme?.accentColor ?? "#FFD700";
+
+  const INTRO_DUR = 90;
+  const MODULE_DUR = 150;
+  const QUIZ_DUR = input.quiz ? 180 : 0;
+  const LEVELUP_DUR = 100;
+  const OUTRO_DUR = 70;
+  const MODULE_COUNT = input.modules.length;
+  const TOTAL = INTRO_DUR + MODULE_COUNT * MODULE_DUR + QUIZ_DUR + LEVELUP_DUR + OUTRO_DUR;
+
+  // Build module scene components
+  const moduleComponents = input.modules.map((mod, i) => {
+    const escapedTitle = JSON.stringify(mod.title);
+    const escapedPoints = JSON.stringify(mod.keyPoints);
+    return `
+function Module${i + 1}Scene() {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const titleProgress = spring({ frame: frame - 10, fps, config: { damping: 14, stiffness: 100 } });
+  const keyPoints = ${escapedPoints};
+  return (
+    <AbsoluteFill style={{ background: "${bg}", display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 80px 60px" }}>
+      {/* Module badge */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 32 }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: "50%",
+          background: "${diff.badge}", boxShadow: "0 0 20px ${diff.glow}",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontWeight: 900, fontSize: 18, color: "white", fontFamily: "Inter, sans-serif",
+          transform: \`scale(\${titleProgress})\`,
+        }}>${i + 1}</div>
+        <div style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "${diff.badge}",
+          textTransform: "uppercase", fontFamily: "Inter, sans-serif", opacity: titleProgress,
+        }}>Module ${i + 1}</div>
+      </div>
+      {/* Title */}
+      <div style={{
+        fontSize: 42, fontWeight: 800, color: "white", fontFamily: "Inter, sans-serif",
+        lineHeight: 1.2, marginBottom: 40,
+        opacity: titleProgress,
+        transform: \`translateY(\${interpolate(titleProgress, [0,1], [20, 0])}px)\`,
+      }}>${mod.title}</div>
+      {/* Key points */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        {keyPoints.map((pt, idx) => {
+          const delay = 25 + idx * 14;
+          const prog = spring({ frame: frame - delay, fps, config: { damping: 16, stiffness: 120 } });
+          const x = interpolate(prog, [0, 1], [-32, 0]);
+          return (
+            <div key={idx} style={{
+              display: "flex", alignItems: "flex-start", gap: 14,
+              opacity: prog, transform: \`translateX(\${x}px)\`, marginBottom: 18,
+            }}>
+              <span style={{ color: "${accent}", fontSize: 20, lineHeight: 1.5, flexShrink: 0 }}>▸</span>
+              <span style={{ color: "rgba(255,255,255,0.88)", fontSize: 22, fontFamily: "Inter, sans-serif", fontWeight: 400, lineHeight: 1.5 }}>{pt}</span>
+            </div>
+          );
+        })}
+      </div>
+      {/* Bottom progress indicator */}
+      <div style={{ position: "absolute", bottom: 32, left: 80, right: 80, display: "flex", gap: 8 }}>
+        {Array.from({ length: ${MODULE_COUNT} }).map((_, idx) => (
+          <div key={idx} style={{
+            height: 3, flex: 1, borderRadius: 2,
+            background: idx <= ${i} ? "${accent}" : "rgba(255,255,255,0.1)",
+            boxShadow: idx === ${i} ? "0 0 8px ${accent}88" : "none",
+          }} />
+        ))}
+      </div>
+    </AbsoluteFill>
+  );
+}`.trim();
+  }).join("\n\n");
+
+  const quizComponent = input.quiz ? `
+function QuizScene() {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const cardScale = spring({ frame, fps, config: { damping: 14, stiffness: 100 } });
+  const REVEAL_AT = 90;
+  const revealed = frame >= REVEAL_AT;
+  const question = ${JSON.stringify(input.quiz.question)};
+  const options = ${JSON.stringify(input.quiz.options)};
+  const correctIndex = ${input.quiz.correctIndex};
+
+  return (
+    <AbsoluteFill style={{ background: "${bg}", display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 80px 60px" }}>
+      <div style={{ transform: \`scale(\${cardScale})\`, width: "100%", maxWidth: 780 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "${accent}", textTransform: "uppercase", fontFamily: "Inter, sans-serif", marginBottom: 20 }}>
+          ⚡ Quick Check
+        </div>
+        <div style={{ color: "white", fontSize: 28, fontWeight: 700, fontFamily: "Inter, sans-serif", lineHeight: 1.4, marginBottom: 32 }}>
+          {question}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {options.map((opt, i) => {
+            const isCorrect = i === correctIndex;
+            const prog = revealed && isCorrect ? spring({ frame: frame - REVEAL_AT, fps, config: { damping: 10, stiffness: 200 } }) : 1;
+            return (
+              <div key={i} style={{
+                background: !revealed ? "rgba(255,255,255,0.05)" : isCorrect ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.02)",
+                border: !revealed ? "1px solid rgba(255,255,255,0.1)" : isCorrect ? "1px solid rgba(34,197,94,0.8)" : "1px solid rgba(255,255,255,0.04)",
+                borderRadius: 12, padding: "16px 22px",
+                display: "flex", alignItems: "center", gap: 16,
+                transform: \`scale(\${isCorrect && revealed ? prog : 1})\`,
+              }}>
+                <span style={{
+                  width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                  background: revealed && isCorrect ? "#22C55E" : "rgba(255,255,255,0.08)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, fontWeight: 700, color: "white", fontFamily: "Inter, sans-serif",
+                }}>
+                  {revealed && isCorrect ? "✓" : String.fromCharCode(65 + i)}
+                </span>
+                <span style={{
+                  color: revealed && isCorrect ? "#86EFAC" : "rgba(255,255,255,0.7)",
+                  fontSize: 19, fontFamily: "Inter, sans-serif",
+                }}>{opt}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+}`.trim() : "";
+
+  const mainVideo = `
+import { AbsoluteFill, useCurrentFrame, useVideoConfig, Sequence, interpolate, spring } from "remotion";
+
+// ── Gamified Learning: ${input.topic} ──────────────────────────────────────
+
+${moduleComponents}
+
+${quizComponent}
+
+function IntroScene() {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const titleScale = spring({ frame: frame - 8, fps, config: { damping: 12, stiffness: 100 } });
+  const subOpacity = interpolate(frame, [25, 50], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const badgeScale = spring({ frame: frame - 40, fps, config: { damping: 14, stiffness: 120 } });
+  return (
+    <AbsoluteFill style={{ background: "${bg}", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}>
+      <div style={{
+        transform: \`scale(\${badgeScale})\`,
+        background: "${diff.badge}22", border: "1px solid ${diff.badge}88",
+        borderRadius: 100, padding: "8px 22px",
+        color: "${diff.badge}", fontSize: 12, fontWeight: 700, letterSpacing: 2,
+        textTransform: "uppercase", fontFamily: "Inter, sans-serif",
+        boxShadow: "0 0 24px ${diff.glow}",
+      }}>${diff.label} · ${MODULE_COUNT} Modules · ${xpTotal} XP</div>
+      <div style={{
+        fontSize: 64, fontWeight: 900, color: "white", fontFamily: "Inter, sans-serif",
+        textAlign: "center", lineHeight: 1.15, maxWidth: 900, padding: "0 40px",
+        transform: \`scale(\${titleScale})\`,
+        textShadow: "0 0 60px ${primary}66",
+      }}>${input.topic}</div>
+      <div style={{ opacity: subOpacity, color: "rgba(255,255,255,0.4)", fontSize: 18, fontFamily: "Inter, sans-serif", letterSpacing: 0.5 }}>
+        Let's learn this — step by step
+      </div>
+    </AbsoluteFill>
+  );
+}
+
+function LevelUpScene() {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const rings = [0, 12, 24].map(delay => ({
+    scale: spring({ frame: frame - delay, fps, config: { damping: 20, stiffness: 60 } }),
+    opacity: interpolate(frame - delay, [0, 30, 70], [0, 0.35, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }),
+  }));
+  const textScale = spring({ frame: frame - 8, fps, config: { damping: 10, stiffness: 120 } });
+  const xpScale = spring({ frame: frame - 30, fps, config: { damping: 14, stiffness: 100 } });
+  return (
+    <AbsoluteFill style={{ background: "${bg}", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {rings.map((r, i) => (
+        <div key={i} style={{
+          position: "absolute",
+          width: 360 + i * 140, height: 360 + i * 140, borderRadius: "50%",
+          border: \`2px solid ${accent}\`, opacity: r.opacity, transform: \`scale(\${r.scale})\`,
+        }} />
+      ))}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18, position: "relative", zIndex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 4, color: "${accent}", textTransform: "uppercase", fontFamily: "Inter, sans-serif", transform: \`scale(\${textScale})\` }}>
+          Complete!
+        </div>
+        <div style={{ fontSize: 110, fontWeight: 900, color: "white", fontFamily: "Inter, sans-serif", lineHeight: 1, transform: \`scale(\${textScale})\`, textShadow: "0 0 40px ${accent}88" }}>
+          ✦
+        </div>
+        <div style={{
+          transform: \`scale(\${xpScale})\`,
+          background: "${accent}22", border: "1px solid ${accent}88",
+          borderRadius: 100, padding: "12px 32px",
+          color: "${accent}", fontSize: 20, fontWeight: 700, fontFamily: "Inter, sans-serif",
+        }}>
+          +${xpTotal} XP Earned
+        </div>
+        <div style={{ opacity: interpolate(frame, [50, 70], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }), color: "rgba(255,255,255,0.4)", fontSize: 16, fontFamily: "Inter, sans-serif" }}>
+          ${input.topic}
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+}
+
+// ── XP Bar (persistent) ────────────────────────────────────────────────────
+function XPBar({ progress }: { progress: number }) {
+  return (
+    <div style={{ position: "absolute", top: 18, left: 40, right: 40, zIndex: 100, display: "flex", alignItems: "center", gap: 12 }}>
+      <span style={{ color: "${accent}", fontSize: 11, fontWeight: 700, fontFamily: "Inter, sans-serif", letterSpacing: 1.5, minWidth: 28 }}>XP</span>
+      <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ height: "100%", borderRadius: 3, width: \`\${progress * 100}%\`, background: "linear-gradient(90deg, ${primary}, ${accent})", boxShadow: "0 0 10px ${accent}88" }} />
+      </div>
+      <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, fontFamily: "Inter, sans-serif", minWidth: 72, textAlign: "right" }}>
+        {Math.round(progress * ${xpTotal})} / ${xpTotal}
+      </span>
+    </div>
+  );
+}
+
+// ── Root composition ────────────────────────────────────────────────────────
+const INTRO_DUR = ${INTRO_DUR};
+const MODULE_DUR = ${MODULE_DUR};
+const QUIZ_DUR = ${QUIZ_DUR};
+const LEVELUP_DUR = ${LEVELUP_DUR};
+const OUTRO_DUR = ${OUTRO_DUR};
+const TOTAL = ${TOTAL};
+
+export const calculateMetadata = () => ({ durationInFrames: TOTAL, fps: 30 });
+
+export default function GamifiedLesson() {
+  const frame = useCurrentFrame();
+  const xpProgress = interpolate(frame, [0, TOTAL - OUTRO_DUR], [0, 1], { extrapolateRight: "clamp" });
+
+  return (
+    <AbsoluteFill style={{ background: "${bg}", fontFamily: "Inter, system-ui, sans-serif" }}>
+      <XPBar progress={xpProgress} />
+      <Sequence from={0} durationInFrames={INTRO_DUR}><IntroScene /></Sequence>
+      ${input.modules.map((_, i) => `<Sequence from={INTRO_DUR + ${i} * MODULE_DUR} durationInFrames={MODULE_DUR}><Module${i + 1}Scene /></Sequence>`).join("\n      ")}
+      ${input.quiz ? `<Sequence from={INTRO_DUR + ${MODULE_COUNT} * MODULE_DUR} durationInFrames={QUIZ_DUR}><QuizScene /></Sequence>` : ""}
+      <Sequence from={INTRO_DUR + ${MODULE_COUNT} * MODULE_DUR + QUIZ_DUR} durationInFrames={LEVELUP_DUR}><LevelUpScene /></Sequence>
+    </AbsoluteFill>
+  );
+}
+`.trim();
+
+  return { "/src/Video.tsx": mainVideo };
+}
+
+server.tool(
+  {
+    name: "create_learning_module",
+    description:
+      "Generate a complete gamified learning video for any topic. " +
+      "Provide the topic, 2–5 modules each with key points, an optional quiz, difficulty level, and optional theme colors. " +
+      "The tool auto-generates a full Remotion video with XP bar, module badges, staggered key point reveals, quiz card, " +
+      "and a dramatic level-up completion scene. Perfect for teaching complex topics part by part. " +
+      "Use scrape_url first if the content comes from a URL.",
+    schema: learningModuleSchema as any,
+    widget: {
+      name: "remotion-player",
+      invoking: "Building your learning module...",
+      invoked: "Module ready",
+    },
+  },
+  async (rawInput: z.infer<typeof learningModuleSchema>, ctx: any) => {
+    const sessionId = ctx.session?.sessionId ?? "default";
+    const parseResult = learningModuleSchema.safeParse(rawInput);
+    if (!parseResult.success) {
+      return failProject(`Invalid learning module input: ${formatZodIssues(parseResult.error)}`);
+    }
+    const input = parseResult.data;
+    const files = generateGamifiedVideoCode(input);
+    const INTRO_DUR = 90, MODULE_DUR = 150, QUIZ_DUR = input.quiz ? 180 : 0, LEVELUP_DUR = 100, OUTRO_DUR = 70;
+    const durationInFrames = INTRO_DUR + input.modules.length * MODULE_DUR + QUIZ_DUR + LEVELUP_DUR + OUTRO_DUR;
+    const project = {
+      title: input.topic,
+      compositionId: "GamifiedLesson",
+      width: DEFAULT_META.width,
+      height: DEFAULT_META.height,
+      fps: 30,
+      durationInFrames,
+      entryFile: "/src/Video.tsx",
+      files,
+      defaultProps: {},
+      inputProps: {},
+    };
+    return compileAndRespondWithProject(project, sessionId, [], "create_video");
   }
 );
 
