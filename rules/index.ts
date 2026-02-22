@@ -6,7 +6,8 @@ Also supports free-form Remotion video creation, animated diagrams, and URL-scra
 ## Available Tools
 
 ### 🎮 Gamified Learning (PRIMARY)
-- **create_learning_module** — FASTEST PATH: given a topic + modules + quiz, auto-generates a complete gamified video (XP bar, badges, key point reveals, quiz card, level-up scene). No code needed.
+- **plan_learning_path** — ALWAYS CALL FIRST. Returns a course map (all modules listed with summaries + XP). Shows the full structure BEFORE any video is generated.
+- **teach_module** — Generates ONE focused module video at a time. Call after plan_learning_path, one per module in sequence. Dark bg always, accent color only for highlights.
 - **rule_gamified_learning** — Component templates: XP bars, module badges, quiz cards, achievement popups, level-up scenes, difficulty system
 
 ### 🌐 URL Scraping
@@ -28,10 +29,15 @@ Also supports free-form Remotion video creation, animated diagrams, and URL-scra
 ## Decision Flow
 
 **User wants to learn a topic?**
-→ Use **create_learning_module** directly. Provide topic, 2–5 modules with key points, optional quiz.
+1. Call **plan_learning_path** → shows course map (all modules listed)
+2. Call **teach_module** for Module 1
+3. After user watches, call **teach_module** for Module 2
+4. Continue until all modules done (last one sets isLast: true → triggers level-up)
 
 **User provides a URL to learn from?**
-→ Call **scrape_url** first → extract keyPoints + theme → call **create_learning_module** with that content and theme colors.
+1. Call **scrape_url** → get title, keyPoints, theme (use accentColor from theme.primaryColor)
+2. Call **plan_learning_path** with content broken into logical modules
+3. Call **teach_module** one at a time with accentColor set to the scraped brand color
 
 **User wants a diagram or explainer video?**
 → Call **rule_remotion_diagrams** → call **create_video** with the diagram code.
@@ -41,53 +47,43 @@ Also supports free-form Remotion video creation, animated diagrams, and URL-scra
 
 ---
 
-## create_learning_module — Quick Reference
+## plan_learning_path — Quick Reference
 
 \`\`\`json
 {
   "topic": "How RSA Encryption Works",
   "difficulty": "intermediate",
-  "xpTotal": 600,
+  "totalXp": 600,
   "modules": [
-    {
-      "title": "What is a Prime Number?",
-      "keyPoints": [
-        "A prime has exactly 2 factors: 1 and itself",
-        "Examples: 2, 3, 5, 7, 11, 13...",
-        "There are infinitely many primes (proven by Euclid)"
-      ]
-    },
-    {
-      "title": "The Key Generation Step",
-      "keyPoints": [
-        "Pick two large primes p and q",
-        "Compute n = p × q (the public modulus)",
-        "The private key is hidden in the factorization of n"
-      ]
-    },
-    {
-      "title": "Encrypting a Message",
-      "keyPoints": [
-        "Your message M is raised to the public exponent e",
-        "Computed as: C = M^e mod n",
-        "Only the holder of the private key can reverse this"
-      ]
-    }
+    { "title": "What is a Prime Number?", "summary": "Covers prime fundamentals and why they matter", "xp": 150 },
+    { "title": "Key Generation", "summary": "How public/private key pairs are created from two primes", "xp": 200 },
+    { "title": "Encrypting a Message", "summary": "The math behind M^e mod n and why only the private key can reverse it", "xp": 250 }
+  ]
+}
+\`\`\`
+
+## teach_module — Quick Reference
+
+\`\`\`json
+{
+  "topic": "How RSA Encryption Works",
+  "moduleNumber": 1,
+  "totalModules": 3,
+  "title": "What is a Prime Number?",
+  "keyPoints": [
+    "A prime has exactly 2 factors: 1 and itself",
+    "Examples: 2, 3, 5, 7, 11, 13...",
+    "There are infinitely many primes — proven by Euclid in 300 BC",
+    "RSA security depends entirely on how hard it is to find prime factors"
   ],
+  "xp": 150,
+  "difficulty": "intermediate",
+  "accentColor": "#F59E0B",
+  "isLast": false,
   "quiz": {
-    "question": "What makes RSA secure?",
-    "options": [
-      "Fast addition of large numbers",
-      "The difficulty of factoring large numbers",
-      "A secret password stored on a server",
-      "Using the same key for encryption and decryption"
-    ],
-    "correctIndex": 1
-  },
-  "theme": {
-    "primaryColor": "#7C3AED",
-    "backgroundColor": "#0D0D1A",
-    "accentColor": "#FFD700"
+    "question": "Which of these is NOT a prime number?",
+    "options": ["7", "11", "15", "19"],
+    "correctIndex": 2
   }
 }
 \`\`\`
@@ -97,10 +93,10 @@ Also supports free-form Remotion video creation, animated diagrams, and URL-scra
 ## URL-Based Learning (Themed)
 
 When the user gives a URL:
-1. Call **scrape_url** — get title, keyPoints, and theme (colors, mood)
-2. Break the keyPoints into logical modules (2–5 points per module)
-3. Call **create_learning_module** using the scraped content + the theme's primaryColor/backgroundColor/accentColor
-4. Example: paulgraham.com → YC orange theme, 3–4 modules from the essay's key arguments
+1. Call **scrape_url** → get title, keyPoints, theme
+2. Use theme.primaryColor as the accentColor in plan_learning_path and teach_module
+3. NEVER use theme.backgroundColor as the video background — always use dark (#0D1117)
+4. Example: paulgraham.com → accentColor: "#FF6600", dark background, orange highlights
 
 ---
 
