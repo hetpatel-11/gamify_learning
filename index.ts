@@ -16,6 +16,254 @@ import {
   getSessionProject,
 } from "./utils.js";
 
+// ---------------------------------------------------------------------------
+// URL scraper + theme detector
+// ---------------------------------------------------------------------------
+
+type ThemeInfo = {
+  name: string;
+  description: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  fontStyle: string;
+  mood: string;
+  keywords: string[];
+};
+
+const KNOWN_THEMES: Record<string, ThemeInfo> = {
+  "paulgraham.com": {
+    name: "Y Combinator / Paul Graham",
+    description: "YC orange startup founder essay aesthetic — typewriter serif, raw intellectual energy, Silicon Valley founder culture",
+    primaryColor: "#FF6600",
+    secondaryColor: "#1a1a1a",
+    accentColor: "#FF8C00",
+    backgroundColor: "#FFF9F4",
+    fontStyle: "Georgia serif, essay-style, monospace accents",
+    mood: "intellectual, provocative, founder-mindset",
+    keywords: ["startup", "founder", "YC", "essay", "entrepreneurship", "Silicon Valley", "hacker"],
+  },
+  "ycombinator.com": {
+    name: "Y Combinator",
+    description: "YC brand — bold orange, Hacker News feel, startup community",
+    primaryColor: "#FF6600",
+    secondaryColor: "#222222",
+    accentColor: "#FF8C00",
+    backgroundColor: "#F6F6EF",
+    fontStyle: "Verdana, monospace, minimal",
+    mood: "direct, technical, no-nonsense",
+    keywords: ["YC", "startup", "batch", "demo day", "funding"],
+  },
+  "stripe.com": {
+    name: "Stripe",
+    description: "Stripe brand — deep purple gradient, fintech precision, elegant developer aesthetic",
+    primaryColor: "#635BFF",
+    secondaryColor: "#0A2540",
+    accentColor: "#00D4FF",
+    backgroundColor: "#FFFFFF",
+    fontStyle: "Camphor, sans-serif, clean grid",
+    mood: "polished, technical, premium fintech",
+    keywords: ["payments", "fintech", "developer", "API", "infrastructure"],
+  },
+  "vercel.com": {
+    name: "Vercel",
+    description: "Vercel brand — pure black/white, geometric precision, developer-first",
+    primaryColor: "#000000",
+    secondaryColor: "#FFFFFF",
+    accentColor: "#0070F3",
+    backgroundColor: "#000000",
+    fontStyle: "Geist, sans-serif, minimal",
+    mood: "sharp, developer, modern tech",
+    keywords: ["deployment", "Next.js", "developer", "cloud", "frontend"],
+  },
+  "openai.com": {
+    name: "OpenAI",
+    description: "OpenAI brand — dark, futuristic, AI lab aesthetic",
+    primaryColor: "#10A37F",
+    secondaryColor: "#202123",
+    accentColor: "#FFFFFF",
+    backgroundColor: "#202123",
+    fontStyle: "Söhne, sans-serif, clean",
+    mood: "futuristic, research, cutting-edge AI",
+    keywords: ["AI", "GPT", "research", "machine learning", "AGI"],
+  },
+  "anthropic.com": {
+    name: "Anthropic",
+    description: "Anthropic brand — warm earth tones, trustworthy AI safety",
+    primaryColor: "#CC785C",
+    secondaryColor: "#1A1A1A",
+    accentColor: "#E8D5C4",
+    backgroundColor: "#FAF7F2",
+    fontStyle: "Tiempos, serif, warm editorial",
+    mood: "thoughtful, safe AI, research-focused",
+    keywords: ["AI safety", "Claude", "constitutional AI", "research"],
+  },
+  "github.com": {
+    name: "GitHub",
+    description: "GitHub brand — dark mode, code-first, open source community",
+    primaryColor: "#238636",
+    secondaryColor: "#161B22",
+    accentColor: "#58A6FF",
+    backgroundColor: "#0D1117",
+    fontStyle: "Mona Sans, monospace accents, developer",
+    mood: "open source, collaborative, technical",
+    keywords: ["code", "open source", "developer", "repository", "git"],
+  },
+  "medium.com": {
+    name: "Medium",
+    description: "Medium editorial — clean white, serif reading experience",
+    primaryColor: "#1A1A1A",
+    secondaryColor: "#6B6B6B",
+    accentColor: "#1A8917",
+    backgroundColor: "#FFFFFF",
+    fontStyle: "Charter, Georgia, editorial serif",
+    mood: "thoughtful, editorial, long-form reading",
+    keywords: ["writing", "story", "editorial", "publication", "blog"],
+  },
+  "apple.com": {
+    name: "Apple",
+    description: "Apple brand — ultra-clean white, product photography, iconic minimalism",
+    primaryColor: "#1D1D1F",
+    secondaryColor: "#515154",
+    accentColor: "#0071E3",
+    backgroundColor: "#FFFFFF",
+    fontStyle: "SF Pro, sans-serif, ultra-refined",
+    mood: "premium, minimal, aspirational product",
+    keywords: ["product", "design", "premium", "technology", "consumer"],
+  },
+};
+
+function detectThemeFromContent(text: string, title: string): ThemeInfo {
+  const combined = (text + " " + title).toLowerCase();
+
+  // Content-based heuristics
+  if (combined.includes("startup") && (combined.includes("founder") || combined.includes("ycombinator") || combined.includes("y combinator"))) {
+    return KNOWN_THEMES["paulgraham.com"]!;
+  }
+  if (combined.includes("machine learning") || combined.includes("large language model") || combined.includes("neural network")) {
+    return {
+      name: "AI / Machine Learning",
+      description: "AI research aesthetic — neural network vibes, dark technical",
+      primaryColor: "#7C3AED",
+      secondaryColor: "#1E1B4B",
+      accentColor: "#06B6D4",
+      backgroundColor: "#0F0F23",
+      fontStyle: "Inter, monospace, technical",
+      mood: "futuristic, research, data-driven",
+      keywords: ["AI", "ML", "data", "model", "neural"],
+    };
+  }
+  if (combined.includes("finance") || combined.includes("investment") || combined.includes("revenue") || combined.includes("market")) {
+    return {
+      name: "Finance / Business",
+      description: "Professional finance aesthetic — navy blue, clean charts, authoritative",
+      primaryColor: "#1E3A5F",
+      secondaryColor: "#0F2137",
+      accentColor: "#00C896",
+      backgroundColor: "#F8FAFC",
+      fontStyle: "Inter, sans-serif, data-table precision",
+      mood: "authoritative, data-driven, professional",
+      keywords: ["finance", "investment", "business", "revenue", "growth"],
+    };
+  }
+  if (combined.includes("design") || combined.includes("ux") || combined.includes("ui") || combined.includes("creative")) {
+    return {
+      name: "Design / Creative",
+      description: "Creative studio aesthetic — vibrant, expressive, portfoliio-style",
+      primaryColor: "#F72585",
+      secondaryColor: "#3A0CA3",
+      accentColor: "#4CC9F0",
+      backgroundColor: "#0F0F0F",
+      fontStyle: "Clash Display, variable font, expressive",
+      mood: "creative, expressive, portfolio-quality",
+      keywords: ["design", "creative", "visual", "brand", "aesthetic"],
+    };
+  }
+
+  // Default: clean editorial
+  return {
+    name: "Editorial",
+    description: "Clean editorial aesthetic — readable, professional content video",
+    primaryColor: "#1A1A2E",
+    secondaryColor: "#16213E",
+    accentColor: "#E94560",
+    backgroundColor: "#F8F9FA",
+    fontStyle: "Inter, sans-serif, editorial",
+    mood: "clean, professional, readable",
+    keywords: ["content", "article", "editorial"],
+  };
+}
+
+function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function extractMetaContent(html: string, name: string): string {
+  const m = html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)["']`, "i"))
+    || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${name}["']`, "i"));
+  return m?.[1]?.trim() ?? "";
+}
+
+function extractTitle(html: string): string {
+  const og = extractMetaContent(html, "og:title");
+  if (og) return og;
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch?.[1]) return titleMatch[1].trim();
+  const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  if (h1Match?.[1]) return stripHtmlTags(h1Match[1]).trim();
+  return "";
+}
+
+function extractAuthor(html: string, domain: string): string {
+  const authorMeta = extractMetaContent(html, "author") || extractMetaContent(html, "article:author");
+  if (authorMeta) return authorMeta;
+  if (domain.includes("paulgraham.com")) return "Paul Graham";
+  return "";
+}
+
+function extractKeyParagraphs(html: string, maxChars = 4000): string {
+  // Extract paragraph text from HTML body
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  const body = bodyMatch?.[1] ?? html;
+  const paragraphs: string[] = [];
+  const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let match;
+  let totalChars = 0;
+  while ((match = pRegex.exec(body)) !== null) {
+    const text = stripHtmlTags(match[1]).trim();
+    if (text.length > 40) {
+      paragraphs.push(text);
+      totalChars += text.length;
+      if (totalChars >= maxChars) break;
+    }
+  }
+  if (paragraphs.length === 0) {
+    return stripHtmlTags(body).slice(0, maxChars);
+  }
+  return paragraphs.join("\n\n");
+}
+
+function extractKeyPoints(fullText: string): string[] {
+  const sentences = fullText
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 60 && s.length < 300);
+  // Pick up to 6 impactful sentences (ones with strong verbs / short punchy structure)
+  return sentences.slice(0, 6);
+}
+
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
 const server = new MCPServer({
@@ -68,6 +316,75 @@ server.tool(
 server.tool(
   { name: "rule_remotion_trimming", description: "Remotion trimming: cut start/end of animations with negative Sequence from" },
   async () => text(RULE_REMOTION_TRIMMING)
+);
+
+// --- Scrape tool ---
+
+server.tool(
+  {
+    name: "scrape_url",
+    description:
+      "Fetch a URL and extract its content + intelligently detect the source's theme (colors, typography, mood). " +
+      "Use this BEFORE create_video when the user wants to make a video about web content. " +
+      "Returns title, author, key content, and a full theme palette (colors, fonts, mood, keywords) so you can create a visually on-brand video.",
+    schema: z.object({
+      url: z.string().describe("The URL to scrape"),
+    }),
+  },
+  async ({ url }: { url: string }) => {
+    let html: string;
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; RemotionMCP/1.0; +https://remotion.dev)",
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        return text(`Failed to fetch URL: HTTP ${response.status} ${response.statusText}`);
+      }
+      html = await response.text();
+    } catch (err) {
+      return text(`Failed to fetch URL: ${(err as Error).message}`);
+    }
+
+    const domain = (() => {
+      try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+    })();
+
+    const title = extractTitle(html);
+    const author = extractAuthor(html, domain);
+    const description = extractMetaContent(html, "og:description") || extractMetaContent(html, "description");
+    const fullText = extractKeyParagraphs(html, 5000);
+    const keyPoints = extractKeyPoints(fullText);
+    const theme = KNOWN_THEMES[domain] ?? detectThemeFromContent(fullText, title);
+
+    const result = {
+      url,
+      domain,
+      title,
+      author,
+      description,
+      theme,
+      content: {
+        fullText: fullText.slice(0, 3000),
+        keyPoints,
+        wordCount: fullText.split(/\s+/).length,
+      },
+      videoGuidance: {
+        suggestedTitle: title || "Video",
+        colorPalette: `Primary: ${theme.primaryColor}, Secondary: ${theme.secondaryColor}, Accent: ${theme.accentColor}, Background: ${theme.backgroundColor}`,
+        typography: theme.fontStyle,
+        mood: theme.mood,
+        styleNote: `This content is from "${theme.name}". Use the theme: ${theme.description}. ` +
+          `Build the video with these exact brand colors. Key visual keywords: ${theme.keywords.join(", ")}.`,
+      },
+    };
+
+    return text(JSON.stringify(result, null, 2));
+  }
 );
 
 // --- Video tool ---
