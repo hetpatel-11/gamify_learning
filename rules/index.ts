@@ -1,20 +1,11 @@
-export const RULE_INDEX = `# Gamified Learning Engine — Turn Any Topic Into an Interactive Video Lesson
+export const RULE_INDEX = `# Remotion MCP — Project-Based Video Creation
 
-Teach complex topics as gamified module videos with XP, quizzes, achievements, and progress bars.
-Also supports free-form Remotion video creation, animated diagrams, and URL-scraped themed videos.
+Create videos using multi-file React/Remotion projects.
 
-## Available Tools
+## Available Rules
 
-### 🎮 Gamified Learning (PRIMARY)
-- **plan_learning_path** — ALWAYS CALL FIRST. Returns a course map (all modules listed with summaries + XP). Shows the full structure BEFORE any video is generated.
-- **teach_module** — Generates ONE focused module video at a time. Call after plan_learning_path, one per module in sequence. Dark bg always, accent color only for highlights.
-- **rule_gamified_learning** — Component templates: XP bars, module badges, quiz cards, achievement popups, level-up scenes, difficulty system
+Call these tools to learn specific Remotion topics:
 
-### 🌐 URL Scraping
-- **scrape_url** — Fetch any URL, extract content + detect brand theme (30+ domains, 15 content categories). Use BEFORE creating videos from URLs.
-
-### 📹 Free-Form Video
-- **create_video** — Create any Remotion video from raw React/TSX files
 - **rule_react_code** — Project file structure, imports, composition exports, props
 - **rule_remotion_animations** — useCurrentFrame, frame-driven animations
 - **rule_remotion_timing** — interpolate, spring, Easing, spring configs
@@ -22,90 +13,43 @@ Also supports free-form Remotion video creation, animated diagrams, and URL-scra
 - **rule_remotion_transitions** — TransitionSeries, fade, slide, wipe, flip
 - **rule_remotion_text_animations** — Typewriter effect, word highlighting
 - **rule_remotion_trimming** — Trim start/end of animations with Sequence
-- **rule_remotion_diagrams** — Flowcharts, node graphs, bar/donut charts, timelines, split text+diagram layouts, animated code blocks
+- **rule_remotion_diagrams** — Animated diagrams: flowcharts, node graphs, bar/donut charts, timelines, split text+diagram explainer layouts, animated code blocks
 
----
+## Quick Start
 
-## Decision Flow
+1. Call **rule_react_code** for the project format reference and exact tool call shape
+2. If the user provides a URL, call **scrape_url** FIRST — it returns extracted content + a full brand theme (colors, fonts, mood). Use these exact colors and style in the video.
+3. Build your project as a **files** map: { "/src/Video.tsx": "source code..." }
+4. Call **create_video** with files (and optionally entryFile, title, fps, etc.)
+5. For edits, call **create_video** again with only the changed files — previous files are preserved automatically
 
-**User wants to learn a topic?**
-1. Call **plan_learning_path** → shows course map (all modules listed)
-2. Call **teach_module** for Module 1
-3. After user watches, call **teach_module** for Module 2
-4. Continue until all modules done (last one sets isLast: true → triggers level-up)
+## URL-Based Video Creation (Thematic Design)
 
-**User provides a URL to learn from?**
-1. Call **scrape_url** → get title, keyPoints, theme (use accentColor from theme.primaryColor)
-2. Call **plan_learning_path** with content broken into logical modules
-3. Call **teach_module** one at a time with accentColor set to the scraped brand color
+When creating a video from a URL:
+- The theme object from **scrape_url** contains primaryColor, secondaryColor, accentColor, backgroundColor, fontStyle, mood
+- Apply the exact brand colors throughout the video — backgrounds, text, accents, gradients
+- Use the theme's mood and keywords to guide animation style and typography choices
+- Reference the keyPoints as the actual content/narrative for each scene
+- Example: paulgraham.com → YC orange (#FF6600) theme, serif typewriter feel, intellectual founder energy
 
-**User wants a diagram or explainer video?**
-→ Call **rule_remotion_diagrams** → call **create_video** with the diagram code.
+## Diagram & Explainer Video Requests
 
-**User wants a custom animated video?**
-→ Call **rule_react_code** → call **create_video** with the files.
+When the user asks for a diagram, flowchart, explainer video, chart, or visualization:
+- Call **rule_remotion_diagrams** to get ready-to-use patterns for nodes/arrows/bars/donuts/timelines
+- Use SVG for all shapes — it scales perfectly and supports draw-on animations via strokeDashoffset
+- Use split layout (left text + right diagram) for "explain X" style requests
+- Stagger node/element entrance delays by 10–20 frames for visual flow
+- Combine with scrape_url for URL-based explainer videos with on-brand theming
 
----
+## Important Rules
 
-## plan_learning_path — Quick Reference
-
-\`\`\`json
-{
-  "topic": "How RSA Encryption Works",
-  "difficulty": "intermediate",
-  "totalXp": 600,
-  "modules": [
-    { "title": "What is a Prime Number?", "summary": "Covers prime fundamentals and why they matter", "xp": 150 },
-    { "title": "Key Generation", "summary": "How public/private key pairs are created from two primes", "xp": 200 },
-    { "title": "Encrypting a Message", "summary": "The math behind M^e mod n and why only the private key can reverse it", "xp": 250 }
-  ]
-}
-\`\`\`
-
-## teach_module — Quick Reference
-
-\`\`\`json
-{
-  "topic": "How RSA Encryption Works",
-  "moduleNumber": 1,
-  "totalModules": 3,
-  "title": "What is a Prime Number?",
-  "keyPoints": [
-    "A prime has exactly 2 factors: 1 and itself",
-    "Examples: 2, 3, 5, 7, 11, 13...",
-    "There are infinitely many primes — proven by Euclid in 300 BC",
-    "RSA security depends entirely on how hard it is to find prime factors"
-  ],
-  "xp": 150,
-  "difficulty": "intermediate",
-  "accentColor": "#F59E0B",
-  "isLast": false,
-  "quiz": {
-    "question": "Which of these is NOT a prime number?",
-    "options": ["7", "11", "15", "19"],
-    "correctIndex": 2
-  }
-}
-\`\`\`
-
----
-
-## URL-Based Learning (Themed)
-
-When the user gives a URL:
-1. Call **scrape_url** → get title, keyPoints, theme
-2. Use theme.primaryColor as the accentColor in plan_learning_path and teach_module
-3. NEVER use theme.backgroundColor as the video background — always use dark (#0D1117)
-4. Example: paulgraham.com → accentColor: "#FF6600", dark background, orange highlights
-
----
-
-## Quality Bar
-
-- Every learning module video should feel like a **game**, not a slideshow
-- XP bar always fills over time — creates tension and reward
-- Key points animate in one at a time — never dump all at once
-- Quiz always has a dramatic reveal moment at frame 90
-- Level-up scene is always the final reward — make it feel earned
-- Match difficulty color to content complexity (green → beginner, gold → intermediate, red → advanced, purple → boss)
+1. Use standard module imports (remotion and installed @remotion/* packages are supported)
+2. Entry module must export a default React component
+3. You may export calculateMetadata() to derive duration/fps/dimensions from props
+4. Keep video-level fallback metadata in tool params (width, height, fps, durationInFrames)
+5. Every Sequence must include durationInFrames to avoid scene stacking
+6. Do not use CSS animations/transitions for timing; use frame-driven Remotion APIs
+7. Default quality bar unless user asks otherwise: multi-scene structure, animated transitions, clear typography hierarchy, and purposeful motion (not static slides)
+8. For edit requests, only send changed files — unchanged files are kept from the previous call
+9. For edit requests, patch the existing project and keep unrelated scenes/styles unless user asks for a full redesign
 `;
